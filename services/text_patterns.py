@@ -1,4 +1,5 @@
-PF2E_PATTERNS = [
+books_patterns = {
+    "pf2e": [
     """|||
 Home
 Actions/Activities
@@ -160,6 +161,6 @@ Data
 More Data
 More Orc?
 BOAR?""",
-]
-
-# TODO
+],
+    "starfinder1e": [],
+}

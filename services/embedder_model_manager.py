@@ -2,19 +2,22 @@ import os
 from typing import Literal
 
 import torch
+import getpass
 from transformers import AutoModel, AutoTokenizer
 
 model_id = "intfloat/e5-large-v2"
 
 
 class EmbedderModelManager:
-    def __init__(self, hf_token, logger=None):
+    def __init__(self, logger=None):
         self.logger = logger
         self.model = None
         self.tokenizer = None
         self.is_loaded = False
 
-        os.environ["HF_TOKEN"] = hf_token
+        if not os.environ.get("HF_TOKEN"):
+            # os.environ["HF_TOKEN"] = getpass.getpass(f"{"HF_TOKEN"}: ")
+            os.environ["HF_TOKEN"] = "..."
 
     def load_model(self):
         """Loads embedder model in memory (on GPU and/or CPU)"""
@@ -41,7 +44,7 @@ class EmbedderModelManager:
             else:
                 print(e)
 
-    def average_pool(
+    def __average_pool(
         self, last_hidden_states: torch.Tensor, attention_mask: torch.Tensor
     ) -> torch.Tensor:
         """Averages the hidden states of the last layer over the sequence length and attention mask."""
@@ -50,7 +53,7 @@ class EmbedderModelManager:
         )
         return last_hidden.sum(dim=1) / attention_mask.sum(dim=1)[..., None]
 
-    def encode(
+    def __encode(
         self,
         texts: list[str],
         task_type: Literal["query", "passage"] = "passage",
@@ -77,9 +80,15 @@ class EmbedderModelManager:
 
         with torch.no_grad():
             outputs = self.model(**batch_dict)
-            embeddings = self.average_pool(
+            embeddings = self.__average_pool(
                 outputs.last_hidden_state, batch_dict["attention_mask"]
             )
             embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
 
         return embeddings.cpu().numpy()
+
+    def embed_documents(self, texts):
+        return self.__encode(texts, task_type="passage")
+
+    def embed_query(self, text):
+        return self.__encode([text], task_type="query")[0]
