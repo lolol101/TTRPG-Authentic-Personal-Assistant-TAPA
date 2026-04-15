@@ -1,57 +1,44 @@
-import os
-import sys
+from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from typing import Literal
 
 from langchain_core.language_models import BaseChatModel
-from langgraph.prebuilt import tools_condition
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.tools import tool
 from langgraph.graph import END
 
-sys.path.append(os.path.abspath(".."))
 from agents_core.state import State
-from agents_core.agents.base_agent import BaseAgent
 
 
-class PrimaryAgent(BaseAgent):
-    def __init__(self, prompt: str, llm: BaseChatModel):
-        self.tools = [
-            MoveToRagAgent
-        ]
-        
-        super().__init__(
-            prompt | llm
-                .bind_tools(self.tools)
-                .with_retry(retry_if_exception_type=(Exception,), stop_after_attempt=2)
-        )
+@tool
+def MoveToRagAgent(query: str) -> str:
+    """Delegate a question to the RAG agent for retrieval-augmented research in the reference book."""
+    return query
 
-def route_primary_agent(state: State):
-    """Routes the primary agent to the appropriate tool based on the current task. 
-    Follows ReAct ideas so routes only single tool at once."""
-    route = tools_condition(state)
-    if route == END:
-        return END
-    tool_calls = state["messages"][-1].tool_calls
-    if tool_calls:
-        if tool_calls[0]["name"] == MoveToRagAgent.__name__:
-            return "enter_rag_agent"
-    raise ValueError("Invalid route")
 
-#========================Tools========================
+class PrimaryAgent:
+    def __init__(self, prompt: ChatPromptTemplate, llm: BaseChatModel):
+        self.prompt = prompt
+        self.tools = [MoveToRagAgent]
+        self.llm = llm.bind_tools(self.tools)
 
-class MoveToRagAgent(BaseModel):
-    """Transfers work to a specialized assistant to handle flight updates and cancellations."""
-    
-    query: str = Field(
-        description="A query to the RagAgent that represents the information needed to retrieve."
-    )
-    
-    class Config:
-        json_schema_extra = {
-            "example1": {
-                "query": "What are the classes in the game?"
-            },
-            "example2": {
-                "query": "How does the Actions work?"
-            }
-        }
+    def __call__(self, state: State) -> dict:
+        chain = self.prompt | self.llm
+        result = chain.invoke(state)
+        return {"messages": [result]}
 
+
+_TOOL_TO_NODE = {
+    MoveToRagAgent.name: "enter_rag_agent",
+}
+
+
+def route_primary_agent(
+    state: State,
+) -> Literal["enter_rag_agent", "__end__"]:
+    last = state["messages"][-1]
+    if hasattr(last, "tool_calls") and last.tool_calls:
+        node = _TOOL_TO_NODE.get(last.tool_calls[0]["name"])
+        if node:
+            return node
+    return END
