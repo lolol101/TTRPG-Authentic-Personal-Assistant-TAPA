@@ -28,6 +28,8 @@ legacy/           # черновая реализация (Telegram-бот + RAG
 
 ## Запуск сквозного скелета
 
+### bash / zsh
+
 ```bash
 # терминал 1 — llm-service (порт 8100)
 cd apps/llm-service && uv sync && uv run uvicorn app.main:app --port 8100
@@ -37,6 +39,25 @@ cd apps/web-backend && uv sync && uv run uvicorn app.main:app --port 8000
 
 # терминал 3 — web-frontend (порт 5173, проксирует /auth, /health, /llm на :8000)
 cd apps/web-frontend && npm install && npm run dev
+```
+
+### PowerShell
+
+```powershell
+# терминал 1 — llm-service (порт 8100)
+Set-Location apps/llm-service
+uv sync
+uv run uvicorn app.main:app --port 8100
+
+# терминал 2 — web-backend (порт 8000)
+Set-Location apps/web-backend
+uv sync
+uv run uvicorn app.main:app --port 8000
+
+# терминал 3 — web-frontend (порт 5173, проксирует /auth, /health, /llm на :8000)
+Set-Location apps/web-frontend
+npm install
+npm run dev
 ```
 
 Открыть `http://localhost:5173/` — форма регистрации/логина и кнопка проверки
