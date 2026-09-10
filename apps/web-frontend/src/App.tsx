@@ -11,6 +11,17 @@ interface TokenResponse {
   token_type: string
 }
 
+interface AskSource {
+  title: string
+  url: string
+  source_book: string
+}
+
+interface AskResponse {
+  answer: string
+  sources: AskSource[]
+}
+
 type Mode = 'login' | 'register'
 
 async function parseErrorDetail(response: Response): Promise<string> {
@@ -29,6 +40,9 @@ function App() {
   const [token, setToken] = useState<string | null>(null)
   const [me, setMe] = useState<UserResponse | null>(null)
   const [pingResult, setPingResult] = useState<string | null>(null)
+  const [question, setQuestion] = useState('')
+  const [asking, setAsking] = useState(false)
+  const [askResult, setAskResult] = useState<AskResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   async function handleSubmit(event: React.FormEvent) {
@@ -88,6 +102,27 @@ function App() {
     setPingResult(JSON.stringify(await response.json()))
   }
 
+  async function askQuestion(event: React.FormEvent) {
+    event.preventDefault()
+    setError(null)
+    setAskResult(null)
+    setAsking(true)
+    try {
+      const response = await fetch('/llm/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question }),
+      })
+      if (!response.ok) {
+        setError(await parseErrorDetail(response))
+        return
+      }
+      setAskResult(await response.json())
+    } finally {
+      setAsking(false)
+    }
+  }
+
   function logOut() {
     setToken(null)
     setMe(null)
@@ -144,6 +179,44 @@ function App() {
           )}
         </div>
       )}
+
+      <hr />
+
+      <div>
+        <h2>Спросить по PF2e</h2>
+        <form onSubmit={askQuestion}>
+          <label>
+            Вопрос (сейчас в базе только раздел /actions/)
+            <input
+              type="text"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              placeholder="Что делает действие Удар?"
+              required
+            />
+          </label>
+          <button type="submit" disabled={asking}>
+            {asking ? 'Спрашиваю…' : 'Спросить'}
+          </button>
+        </form>
+        {askResult && (
+          <div>
+            <p>{askResult.answer}</p>
+            {askResult.sources.length > 0 && (
+              <ul>
+                {askResult.sources.map((source) => (
+                  <li key={source.url}>
+                    <a href={source.url} target="_blank" rel="noreferrer">
+                      {source.title}
+                    </a>
+                    {source.source_book && ` — ${source.source_book}`}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
 
       <hr />
 
