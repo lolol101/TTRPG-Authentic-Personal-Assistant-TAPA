@@ -117,7 +117,7 @@ function App() {
         </TabsContent>
 
         <TabsContent value="rules" className="mt-4">
-          <AskPanel />
+          <AskPanel token={token} characters={characters} />
         </TabsContent>
       </Tabs>
     </div>

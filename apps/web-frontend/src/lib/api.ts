@@ -116,10 +116,10 @@ export const api = {
 
   me: (token: string) => request<UserResponse>('/auth/me', token),
 
-  ask: (question: string) =>
-    request<AskResponse>('/llm/ask', null, {
+  ask: (token: string, question: string, characterId?: number) =>
+    request<AskResponse>('/llm/ask', token, {
       method: 'POST',
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, character_id: characterId ?? null }),
     }),
 
   listCharacters: (token: string) => request<Character[]>('/characters', token),

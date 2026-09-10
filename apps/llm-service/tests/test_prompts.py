@@ -36,3 +36,28 @@ def test_build_ask_prompt_numbers_multiple_sources() -> None:
 
     assert "[1] A" in prompt
     assert "[2] B" in prompt
+
+
+def test_build_ask_prompt_omits_the_character_block_when_none_is_given() -> None:
+    prompt = build_ask_prompt("вопрос", [])
+
+    assert "Лист персонажа" not in prompt
+
+
+def test_build_ask_prompt_includes_the_character_sheet_when_given() -> None:
+    prompt = build_ask_prompt("Хватит ли мне Атлетики?", [], "Персонаж: Рэм\nАтлетика: +12")
+
+    assert "Лист персонажа" in prompt
+    assert "Атлетика: +12" in prompt
+
+
+def test_character_block_tells_the_model_not_to_redo_the_arithmetic() -> None:
+    prompt = build_ask_prompt("вопрос", [], "Персонаж: Рэм")
+
+    assert "не пересчитывай" in prompt
+
+
+def test_character_sheet_is_not_presented_as_a_source_of_rules() -> None:
+    prompt = build_ask_prompt("вопрос", [], "Персонаж: Рэм")
+
+    assert "не является источником правил" in prompt
