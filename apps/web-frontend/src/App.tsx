@@ -1,235 +1,126 @@
-import { useState } from 'react'
-import './App.css'
+import { useCallback, useEffect, useState } from 'react'
+import { AskPanel } from '@/components/AskPanel'
+import { AuthPanel } from '@/components/AuthPanel'
+import { CharacterList } from '@/components/CharacterList'
+import { CharacterSheet } from '@/components/CharacterSheet'
+import { Button } from '@/components/ui/button'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { api, ApiError, type Character, type CharacterUpdate } from '@/lib/api'
 
-interface UserResponse {
-  id: number
-  email: string
-}
-
-interface TokenResponse {
-  access_token: string
-  token_type: string
-}
-
-interface AskSource {
-  title: string
-  url: string
-  source_book: string
-}
-
-interface AskResponse {
-  answer: string
-  sources: AskSource[]
-}
-
-type Mode = 'login' | 'register'
-
-async function parseErrorDetail(response: Response): Promise<string> {
-  try {
-    const body = await response.json()
-    return typeof body.detail === 'string' ? body.detail : response.statusText
-  } catch {
-    return response.statusText
-  }
-}
+const TOKEN_STORAGE_KEY = 'tapa.token'
 
 function App() {
-  const [mode, setMode] = useState<Mode>('login')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [token, setToken] = useState<string | null>(null)
-  const [me, setMe] = useState<UserResponse | null>(null)
-  const [pingResult, setPingResult] = useState<string | null>(null)
-  const [question, setQuestion] = useState('')
-  const [asking, setAsking] = useState(false)
-  const [askResult, setAskResult] = useState<AskResponse | null>(null)
+  const [token, setToken] = useState<string | null>(() =>
+    localStorage.getItem(TOKEN_STORAGE_KEY),
+  )
+  const [email, setEmail] = useState<string | null>(null)
+  const [characters, setCharacters] = useState<Character[]>([])
+  const [openCharacter, setOpenCharacter] = useState<Character | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault()
-    setError(null)
-
-    if (mode === 'register') {
-      const response = await fetch('/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      })
-      if (!response.ok) {
-        setError(await parseErrorDetail(response))
-        return
-      }
-      setMode('login')
-      setError('Registered — now log in.')
-      return
-    }
-
-    const response = await fetch('/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    })
-    if (!response.ok) {
-      setError(await parseErrorDetail(response))
-      return
-    }
-    const data: TokenResponse = await response.json()
-    setToken(data.access_token)
-    setMe(null)
-  }
-
-  async function fetchMe() {
-    if (!token) return
-    setError(null)
-    const response = await fetch('/auth/me', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    if (!response.ok) {
-      setError(await parseErrorDetail(response))
-      return
-    }
-    setMe(await response.json())
-  }
-
-  async function pingLlmService() {
-    setError(null)
-    setPingResult(null)
-    const response = await fetch('/llm/ping')
-    if (!response.ok) {
-      setError(await parseErrorDetail(response))
-      return
-    }
-    setPingResult(JSON.stringify(await response.json()))
-  }
-
-  async function askQuestion(event: React.FormEvent) {
-    event.preventDefault()
-    setError(null)
-    setAskResult(null)
-    setAsking(true)
-    try {
-      const response = await fetch('/llm/ask', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
-      })
-      if (!response.ok) {
-        setError(await parseErrorDetail(response))
-        return
-      }
-      setAskResult(await response.json())
-    } finally {
-      setAsking(false)
-    }
-  }
-
-  function logOut() {
+  const logOut = useCallback(() => {
+    localStorage.removeItem(TOKEN_STORAGE_KEY)
     setToken(null)
-    setMe(null)
+    setEmail(null)
+    setCharacters([])
+    setOpenCharacter(null)
+  }, [])
+
+  const refresh = useCallback(
+    async (activeToken: string) => {
+      try {
+        const [user, list] = await Promise.all([
+          api.me(activeToken),
+          api.listCharacters(activeToken),
+        ])
+        setEmail(user.email)
+        setCharacters(list)
+      } catch (caught) {
+        // A stored token that the backend rejects is worse than no token:
+        // it leaves the app stuck on an empty screen with no way back.
+        if (caught instanceof ApiError) logOut()
+        else setError('Сервер недоступен')
+      }
+    },
+    [logOut],
+  )
+
+  useEffect(() => {
+    if (token) void refresh(token)
+  }, [token, refresh])
+
+  function handleLoggedIn(newToken: string) {
+    localStorage.setItem(TOKEN_STORAGE_KEY, newToken)
+    setToken(newToken)
   }
+
+  async function handleCreate(name: string) {
+    if (!token) return
+    const created = await api.createCharacter(token, { name })
+    setCharacters((current) => [...current, created])
+    setOpenCharacter(created)
+  }
+
+  async function handleSave(payload: CharacterUpdate) {
+    if (!token || !openCharacter) return
+    const updated = await api.updateCharacter(token, openCharacter.id, payload)
+    setCharacters((current) => current.map((c) => (c.id === updated.id ? updated : c)))
+    setOpenCharacter(updated)
+  }
+
+  async function handleDelete() {
+    if (!token || !openCharacter) return
+    await api.deleteCharacter(token, openCharacter.id)
+    setCharacters((current) => current.filter((c) => c.id !== openCharacter.id))
+    setOpenCharacter(null)
+  }
+
+  if (!token) return <AuthPanel onLoggedIn={handleLoggedIn} />
 
   return (
-    <main className="skeleton">
-      <h1>TAPA — service skeleton</h1>
-
-      {!token ? (
-        <form onSubmit={handleSubmit}>
-          <h2>{mode === 'login' ? 'Log in' : 'Register'}</h2>
-          <label>
-            Email
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </label>
-          <label>
-            Password
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={8}
-            />
-          </label>
-          <button type="submit">{mode === 'login' ? 'Log in' : 'Register'}</button>
-          <button
-            type="button"
-            className="link"
-            onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
-          >
-            {mode === 'login' ? 'Need an account? Register' : 'Have an account? Log in'}
-          </button>
-        </form>
-      ) : (
-        <div>
-          <p>Logged in. Token stored in memory only (not persisted).</p>
-          <button type="button" onClick={fetchMe}>
-            GET /auth/me
-          </button>
-          <button type="button" onClick={logOut}>
-            Log out
-          </button>
-          {me && (
-            <pre>
-              {JSON.stringify(me, null, 2)}
-            </pre>
-          )}
+    <div className="mx-auto max-w-6xl px-4 py-6">
+      <header className="mb-6 flex flex-wrap items-center gap-3">
+        <h1 className="font-heading text-3xl">TAPA</h1>
+        <span className="text-sm text-muted-foreground">Pathfinder 2e</span>
+        <div className="ml-auto flex items-center gap-3">
+          {email && <span className="text-sm text-muted-foreground">{email}</span>}
+          <Button variant="outline" size="sm" onClick={logOut}>
+            Выйти
+          </Button>
         </div>
-      )}
+      </header>
 
-      <hr />
+      {error && <p className="mb-4 text-sm text-destructive">{error}</p>}
 
-      <div>
-        <h2>Спросить по PF2e</h2>
-        <form onSubmit={askQuestion}>
-          <label>
-            Вопрос (сейчас в базе только раздел /actions/)
-            <input
-              type="text"
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              placeholder="Что делает действие Удар?"
-              required
+      <Tabs defaultValue="characters">
+        <TabsList>
+          <TabsTrigger value="characters">Персонажи</TabsTrigger>
+          <TabsTrigger value="rules">Правила</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="characters" className="mt-4">
+          {openCharacter ? (
+            <CharacterSheet
+              key={openCharacter.id}
+              character={openCharacter}
+              onSave={handleSave}
+              onDelete={handleDelete}
+              onBack={() => setOpenCharacter(null)}
             />
-          </label>
-          <button type="submit" disabled={asking}>
-            {asking ? 'Спрашиваю…' : 'Спросить'}
-          </button>
-        </form>
-        {askResult && (
-          <div>
-            <p>{askResult.answer}</p>
-            {askResult.sources.length > 0 && (
-              <ul>
-                {askResult.sources.map((source) => (
-                  <li key={source.url}>
-                    <a href={source.url} target="_blank" rel="noreferrer">
-                      {source.title}
-                    </a>
-                    {source.source_book && ` — ${source.source_book}`}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-      </div>
+          ) : (
+            <CharacterList
+              characters={characters}
+              onOpen={setOpenCharacter}
+              onCreate={handleCreate}
+            />
+          )}
+        </TabsContent>
 
-      <hr />
-
-      <div>
-        <h2>Connectivity check</h2>
-        <button type="button" onClick={pingLlmService}>
-          ping llm-service (via backend)
-        </button>
-        {pingResult && <pre>{pingResult}</pre>}
-      </div>
-
-      {error && <p className="error">{error}</p>}
-    </main>
+        <TabsContent value="rules" className="mt-4">
+          <AskPanel />
+        </TabsContent>
+      </Tabs>
+    </div>
   )
 }
 
