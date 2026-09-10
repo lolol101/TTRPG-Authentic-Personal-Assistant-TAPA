@@ -87,6 +87,7 @@ def test_ask_proxies_question_and_returns_answer(client, monkeypatch) -> None:
         "question": "Что делает Удар?",
         "k": None,
         "character_context": None,
+        "allow_sheet_edits": False,
     }
 
 
@@ -166,3 +167,86 @@ def test_ask_returns_502_when_llm_service_unreachable(client, monkeypatch) -> No
     response = client.post("/llm/ask", json={"question": "вопрос"}, headers=headers)
 
     assert response.status_code == 502
+
+
+def _stub_ask_with_proposals(monkeypatch, proposals: list[dict], captured: dict | None = None):
+    def _fake_post(url, json, timeout):
+        if captured is not None:
+            captured["json"] = json
+        return _FakeAskResponse(
+            200, {"answer": "Готово.", "sources": [], "proposed_changes": proposals}
+        )
+
+    monkeypatch.setattr(llm.httpx, "post", _fake_post)
+
+
+def test_ask_offers_sheet_edits_only_with_a_character(client, monkeypatch) -> None:
+    headers = _auth_headers(client)
+    captured: dict = {}
+    _stub_ask_with_proposals(monkeypatch, [], captured)
+
+    client.post("/llm/ask", json={"question": "вопрос"}, headers=headers)
+
+    assert captured["json"]["allow_sheet_edits"] is False
+
+
+def test_ask_returns_validated_proposals_without_applying_them(client, monkeypatch) -> None:
+    headers = _auth_headers(client)
+    character_id = client.post(
+        "/characters", json={"name": "Рэм", "level": 5, "hp_current": 60}, headers=headers
+    ).json()["id"]
+    _stub_ask_with_proposals(
+        monkeypatch, [{"path": "hp_current", "value": 42, "reason": "получил урон"}]
+    )
+
+    response = client.post(
+        "/llm/ask",
+        json={"question": "я получил 18 урона", "character_id": character_id},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    changes = response.json()["proposed_changes"]
+    assert changes == [
+        {
+            "path": "hp_current",
+            "value": 42,
+            "reason": "получил урон",
+            "label": "Текущие ПЗ",
+            "before": 60,
+        }
+    ]
+
+    # Nothing may be written until the player confirms.
+    stored = client.get(f"/characters/{character_id}", headers=headers).json()
+    assert stored["hp_current"] == 60
+
+
+def test_ask_drops_proposals_outside_the_whitelist(client, monkeypatch) -> None:
+    headers = _auth_headers(client)
+    character_id = client.post("/characters", json={"name": "Рэм"}, headers=headers).json()["id"]
+    _stub_ask_with_proposals(
+        monkeypatch,
+        [
+            {"path": "hp_current", "value": 10},
+            {"path": "name", "value": "взломано"},
+        ],
+    )
+
+    body = client.post(
+        "/llm/ask",
+        json={"question": "вопрос", "character_id": character_id},
+        headers=headers,
+    ).json()
+
+    assert [change["path"] for change in body["proposed_changes"]] == ["hp_current"]
+    assert len(body["rejected_changes"]) == 1
+
+
+def test_ask_ignores_proposals_when_no_character_is_selected(client, monkeypatch) -> None:
+    headers = _auth_headers(client)
+    _stub_ask_with_proposals(monkeypatch, [{"path": "hp_current", "value": 1}])
+
+    body = client.post("/llm/ask", json={"question": "вопрос"}, headers=headers).json()
+
+    assert body["proposed_changes"] == []

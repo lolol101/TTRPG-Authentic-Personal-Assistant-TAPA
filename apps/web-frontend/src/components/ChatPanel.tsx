@@ -1,8 +1,16 @@
-import { SendHorizontal, Trash2 } from 'lucide-react'
+import { Check, SendHorizontal, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { api, ApiError, type AskSource, type Character } from '@/lib/api'
+import {
+  api,
+  ApiError,
+  buildPatchFromChanges,
+  type AskSource,
+  type Character,
+  type CharacterUpdate,
+  type ProposedChange,
+} from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 const STORAGE_KEY = 'tapa.chat.history'
@@ -14,7 +22,12 @@ interface Message {
   sources?: AskSource[]
   /** Which character the question was asked for, if any. */
   characterName?: string
+  characterId?: number
   failed?: boolean
+  /** Sheet edits the assistant suggested; applied only on confirmation. */
+  changes?: ProposedChange[]
+  rejected?: string[]
+  applied?: boolean
 }
 
 function loadHistory(): Message[] {
@@ -41,9 +54,10 @@ function newId(): string {
 interface Props {
   token: string
   characters: Character[]
+  onApplyChanges: (characterId: number, patch: CharacterUpdate) => Promise<void>
 }
 
-export function ChatPanel({ token, characters }: Props) {
+export function ChatPanel({ token, characters, onApplyChanges }: Props) {
   const [messages, setMessages] = useState<Message[]>(loadHistory)
   const [question, setQuestion] = useState('')
   const [characterId, setCharacterId] = useState<number | null>(null)
@@ -72,7 +86,15 @@ export function ChatPanel({ token, characters }: Props) {
       const answer = await api.ask(token, text, characterId ?? undefined)
       setMessages((current) => [
         ...current,
-        { id: newId(), role: 'assistant', text: answer.answer, sources: answer.sources },
+        {
+          id: newId(),
+          role: 'assistant',
+          text: answer.answer,
+          sources: answer.sources,
+          characterId: characterId ?? undefined,
+          changes: answer.proposed_changes,
+          rejected: answer.rejected_changes,
+        },
       ])
     } catch (caught) {
       setMessages((current) => [
@@ -87,6 +109,17 @@ export function ChatPanel({ token, characters }: Props) {
     } finally {
       setAsking(false)
     }
+  }
+
+  async function applyChanges(message: Message) {
+    if (!message.characterId || !message.changes?.length) return
+    const target = characters.find((entry) => entry.id === message.characterId)
+    if (!target) return
+
+    await onApplyChanges(message.characterId, buildPatchFromChanges(target, message.changes))
+    setMessages((current) =>
+      current.map((entry) => (entry.id === message.id ? { ...entry, applied: true } : entry)),
+    )
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -201,6 +234,48 @@ export function ChatPanel({ token, characters }: Props) {
                   </ul>
                 </div>
               )}
+
+              {message.changes && message.changes.length > 0 && (
+                <div className="space-y-2 border-t pt-2">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Предлагаемые изменения листа
+                  </p>
+                  <ul className="space-y-1 text-xs">
+                    {message.changes.map((change) => (
+                      <li key={change.path} className="flex flex-wrap items-baseline gap-1.5">
+                        <span className="font-medium">{change.label || change.path}</span>
+                        <span className="font-sans tabular-nums text-muted-foreground">
+                          {String(change.before)} → {String(change.value)}
+                        </span>
+                        {change.reason && (
+                          <span className="text-muted-foreground">· {change.reason}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                  {message.applied ? (
+                    <p className="text-xs text-muted-foreground">Применено к листу.</p>
+                  ) : (
+                    <Button size="sm" onClick={() => void applyChanges(message)}>
+                      <Check className="size-3.5" />
+                      Применить к листу
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {message.rejected && message.rejected.length > 0 && (
+                <div className="space-y-1 border-t pt-2">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Отклонено проверкой
+                  </p>
+                  <ul className="space-y-0.5 text-xs text-muted-foreground">
+                    {message.rejected.map((reason) => (
+                      <li key={reason}>{reason}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -208,7 +283,7 @@ export function ChatPanel({ token, characters }: Props) {
         {asking && (
           <div className="flex justify-start">
             <div className="rounded-lg border bg-card px-3 py-2 text-sm text-muted-foreground">
-              Ищу в правилах…
+              Работаю…
             </div>
           </div>
         )}

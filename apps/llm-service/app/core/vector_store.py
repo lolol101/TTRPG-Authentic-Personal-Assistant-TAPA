@@ -5,16 +5,25 @@ from typing import Any
 import chromadb
 from chromadb.api.models.Collection import Collection
 
-from app.core.config import settings
+from app.core.config import collection_name, settings
+from app.core.embedding_provider import get_embedding_provider
 
 _collection: Collection | None = None
 
 
 def get_collection() -> Collection:
+    """The collection matching the embedding model actually in use.
+
+    Tying the name to the model means a fallback to a different embedding
+    backend reads its own index rather than querying vectors from one model
+    against an index built by another.
+    """
     global _collection
     if _collection is None:
         client = chromadb.PersistentClient(path=settings.chroma_persist_dir)
-        _collection = client.get_or_create_collection(name=settings.chroma_collection)
+        _collection = client.get_or_create_collection(
+            name=collection_name(get_embedding_provider().model_id)
+        )
     return _collection
 
 

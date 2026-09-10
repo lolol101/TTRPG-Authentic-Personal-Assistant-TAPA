@@ -66,6 +66,14 @@ function App() {
     setOpenCharacter(updated)
   }
 
+  /** Applies an assistant proposal the player confirmed in the chat. */
+  async function handleApplyChanges(characterId: number, patch: CharacterUpdate) {
+    if (!token) return
+    const updated = await api.updateCharacter(token, characterId, patch)
+    setCharacters((current) => current.map((c) => (c.id === updated.id ? updated : c)))
+    setOpenCharacter((current) => (current?.id === updated.id ? updated : current))
+  }
+
   async function handleDelete() {
     if (!token || !openCharacter) return
     await api.deleteCharacter(token, openCharacter.id)
@@ -130,7 +138,7 @@ function App() {
         {/* keepMounted: switching to the sheet must not tear down the chat —
             otherwise a question in flight is lost and the thread resets. */}
         <TabsContent value="chat" className="mt-4" keepMounted>
-          <ChatPanel token={token} characters={characters} />
+          <ChatPanel token={token} characters={characters} onApplyChanges={handleApplyChanges} />
         </TabsContent>
       </Tabs>
     </div>

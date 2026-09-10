@@ -45,7 +45,7 @@ export function AuthPanel({ onLoggedIn }: Props) {
           <CardTitle className="font-heading text-2xl font-normal">
             {mode === 'login' ? 'Вход' : 'Регистрация'}
           </CardTitle>
-          <CardDescription>TAPA — ассистент по Pathfinder 2e</CardDescription>
+          <CardDescription>TAPA — ассистент за игровым столом</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">

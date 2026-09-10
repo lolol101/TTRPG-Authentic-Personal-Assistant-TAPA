@@ -14,9 +14,20 @@ export interface AskSource {
   source_book: string
 }
 
+/** A sheet edit the assistant suggests. Applied only when the player says so. */
+export interface ProposedChange {
+  path: string
+  value: unknown
+  reason: string
+  label: string
+  before: unknown
+}
+
 export interface AskResponse {
   answer: string
   sources: AskSource[]
+  proposed_changes: ProposedChange[]
+  rejected_changes: string[]
 }
 
 /**
@@ -76,6 +87,39 @@ async function request<T>(path: string, token: string | null, init?: RequestInit
 
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
+}
+
+/**
+ * Turns validated proposals into a PATCH body.
+ *
+ * The backend already decided each path is writable; this only merges them
+ * into the character's current sheet so untouched fields survive the patch.
+ */
+export function buildPatchFromChanges(
+  character: Character,
+  changes: ProposedChange[],
+): CharacterUpdate {
+  const patch: Record<string, unknown> = {}
+  let sheet: Record<string, unknown> | null = null
+
+  for (const change of changes) {
+    if (!change.path.startsWith('sheet_data.')) {
+      patch[change.path] = change.value
+      continue
+    }
+    sheet ??= structuredClone(character.sheet_data ?? {}) as Record<string, unknown>
+    const parts = change.path.split('.').slice(1)
+    let target = sheet
+    for (const part of parts.slice(0, -1)) {
+      const nested = target[part]
+      if (typeof nested !== 'object' || nested === null) target[part] = {}
+      target = target[part] as Record<string, unknown>
+    }
+    target[parts[parts.length - 1]] = change.value
+  }
+
+  if (sheet) patch.sheet_data = sheet
+  return patch as CharacterUpdate
 }
 
 export const api = {
