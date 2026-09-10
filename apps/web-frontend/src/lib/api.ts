@@ -1,4 +1,4 @@
-import type { ProficiencyRank } from '@/lib/pf2e'
+import type { StatComponents } from '@/lib/pf2e'
 
 export interface UserResponse {
   id: number
@@ -21,11 +21,32 @@ export interface AskResponse {
   sources: AskSource[]
 }
 
-/** Free-form half of the sheet — see the Character model in web-backend. */
+/**
+ * Free-form half of the sheet — see the Character model in web-backend.
+ * Holds the per-component breakdown behind every derived statistic; the
+ * typed columns keep only the totals the backend itself needs to read.
+ */
 export interface SheetData {
-  proficiencies?: Record<string, ProficiencyRank>
+  /** Keyed by skill, save, 'perception', 'armor_class' or 'class_dc'. */
+  stats?: Record<string, StatComponents>
+  conditions?: Record<string, number>
+  hp?: {
+    ancestry: number
+    per_level: number
+    item: number
+    other: number
+    penalty: number
+    temporary: number
+  }
+  armor?: { dex_cap: number | null; check_penalty: number }
+  class_dc_ability?: string
   hero_points?: number
-  temp_hp?: number
+  player_name?: string
+  heritage?: string
+  deity?: string
+  languages?: string
+  senses?: string
+  resistances?: string
   notes?: string
 }
 

@@ -42,7 +42,9 @@ export function AuthPanel({ onLoggedIn }: Props) {
     <div className="mx-auto flex min-h-svh max-w-md items-center px-4">
       <Card className="w-full">
         <CardHeader>
-          <CardTitle>{mode === 'login' ? 'Вход' : 'Регистрация'}</CardTitle>
+          <CardTitle className="font-heading text-3xl font-normal">
+            {mode === 'login' ? 'Вход' : 'Регистрация'}
+          </CardTitle>
           <CardDescription>TAPA — ассистент по Pathfinder 2e</CardDescription>
         </CardHeader>
         <CardContent>

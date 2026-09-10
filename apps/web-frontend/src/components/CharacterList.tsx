@@ -30,7 +30,9 @@ export function CharacterList({ characters, onOpen, onCreate }: Props) {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Новый персонаж</CardTitle>
+          <CardTitle className="font-heading heading-marked text-2xl font-normal">
+            Новый персонаж
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleCreate} className="flex gap-2">
@@ -57,7 +59,9 @@ export function CharacterList({ characters, onOpen, onCreate }: Props) {
               onClick={() => onOpen(character)}
             >
               <CardHeader>
-                <CardTitle>{character.name}</CardTitle>
+                <CardTitle className="font-heading text-2xl font-normal">
+                  {character.name}
+                </CardTitle>
               </CardHeader>
               <CardContent className="text-sm text-muted-foreground">
                 <p>

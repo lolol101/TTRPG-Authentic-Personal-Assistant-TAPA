@@ -28,7 +28,9 @@ export function AskPanel() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Вопрос по правилам</CardTitle>
+        <CardTitle className="font-heading heading-marked text-2xl font-normal">
+          Вопрос по правилам
+        </CardTitle>
         <CardDescription>
           Ответ строится только по проиндексированным правилам PF2e — сейчас это раздел действий с
           pf2.ru.
