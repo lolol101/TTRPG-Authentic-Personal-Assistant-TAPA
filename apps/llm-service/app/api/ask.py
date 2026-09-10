@@ -19,7 +19,7 @@ _log = logging.getLogger(__name__)
 def ask(payload: AskRequest) -> AskResponse:
     started_at = time.monotonic()
     retrieved = retrieve(payload.question, payload.k)
-    prompt = build_ask_prompt(payload.question, retrieved)
+    prompt = build_ask_prompt(payload.question, retrieved, payload.character_context)
 
     try:
         answer = get_completion(prompt)
@@ -36,9 +36,10 @@ def ask(payload: AskRequest) -> AskResponse:
 
     elapsed_ms = (time.monotonic() - started_at) * 1000
     _log.info(
-        "ask: question=%r k=%s sources=%s elapsed_ms=%.0f",
+        "ask: question=%r k=%s with_character=%s sources=%s elapsed_ms=%.0f",
         payload.question,
         payload.k,
+        payload.character_context is not None,
         [r["metadata"]["title"] for r in retrieved],
         elapsed_ms,
     )
