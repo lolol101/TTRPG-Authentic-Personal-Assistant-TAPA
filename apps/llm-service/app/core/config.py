@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     embedding_base_url: str = "http://localhost:11434"
     embedding_timeout_seconds: float = 120.0
 
+    # Embeddings stay off the GPU so the generation model keeps the whole card.
+    # A large model fills VRAM by itself; letting the embedder onto the GPU too
+    # makes Ollama evict one for the other, and every ask pays a model reload
+    # (~150s measured on a 30B MoE) twice. The embedder is small — CPU is fine.
+    embedding_use_gpu: bool = False
+
     # Each embedding model has its own vector space, so each gets its own
     # collection — querying one model's index with another model's vectors
     # returns confident nonsense.

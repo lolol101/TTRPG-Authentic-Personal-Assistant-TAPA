@@ -26,7 +26,7 @@ def test_ollama_provider_sends_model_and_texts(monkeypatch) -> None:
     import httpx
 
     monkeypatch.setattr(httpx, "post", _fake_post)
-    provider = OllamaEmbeddingProvider("bge-m3", "http://localhost:11434", 30.0)
+    provider = OllamaEmbeddingProvider("bge-m3", "http://localhost:11434", 30.0, use_gpu=True)
 
     vectors = provider.embed(["первый", "второй"])
 
@@ -46,7 +46,9 @@ def test_ollama_provider_trims_trailing_slash_in_base_url(monkeypatch) -> None:
 
     monkeypatch.setattr(httpx, "post", _fake_post)
 
-    OllamaEmbeddingProvider("bge-m3", "http://localhost:11434/", 30.0).embed(["текст"])
+    OllamaEmbeddingProvider("bge-m3", "http://localhost:11434/", 30.0, use_gpu=True).embed(
+        ["текст"]
+    )
 
     assert captured["url"] == "http://localhost:11434/api/embed"
 
@@ -60,10 +62,48 @@ def test_ollama_provider_rejects_a_short_batch(monkeypatch) -> None:
     import httpx
 
     monkeypatch.setattr(httpx, "post", _fake_post)
-    provider = OllamaEmbeddingProvider("bge-m3", "http://localhost:11434", 30.0)
+    provider = OllamaEmbeddingProvider("bge-m3", "http://localhost:11434", 30.0, use_gpu=True)
 
     with pytest.raises(RuntimeError, match="1 embeddings for 2 texts"):
         provider.embed(["первый", "второй"])
+
+
+def test_embeddings_are_pinned_to_the_cpu_by_default(monkeypatch) -> None:
+    """Sharing the GPU with the generation model makes Ollama evict one for
+    the other, and every ask then pays a model reload — measured at ~150s."""
+    captured: dict = {}
+
+    def _fake_post(url, json, timeout):
+        captured["json"] = json
+        return _FakeResponse({"embeddings": [[0.0]]})
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "post", _fake_post)
+
+    OllamaEmbeddingProvider("bge-m3", "http://localhost:11434", 30.0, use_gpu=False).embed(
+        ["текст"]
+    )
+
+    assert captured["json"]["options"] == {"num_gpu": 0}
+
+
+def test_no_gpu_option_is_sent_when_the_gpu_is_allowed(monkeypatch) -> None:
+    captured: dict = {}
+
+    def _fake_post(url, json, timeout):
+        captured["json"] = json
+        return _FakeResponse({"embeddings": [[0.0]]})
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "post", _fake_post)
+
+    OllamaEmbeddingProvider("bge-m3", "http://localhost:11434", 30.0, use_gpu=True).embed(
+        ["текст"]
+    )
+
+    assert "options" not in captured["json"]
 
 
 def test_backend_is_chosen_by_config(monkeypatch) -> None:

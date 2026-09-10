@@ -50,10 +50,11 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
     ONNX one — Russian retrieval on the light model was noticeably weak.
     """
 
-    def __init__(self, model_id: str, base_url: str, timeout: float) -> None:
+    def __init__(self, model_id: str, base_url: str, timeout: float, use_gpu: bool) -> None:
         self._model_id = model_id
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
+        self._use_gpu = use_gpu
 
     @property
     def model_id(self) -> str:
@@ -62,9 +63,15 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
     def embed(self, texts: list[str]) -> list[list[float]]:
         import httpx
 
+        payload: dict = {"model": self._model_id, "input": texts}
+        if not self._use_gpu:
+            # num_gpu=0 keeps this model in RAM, so it never competes with the
+            # generation model for VRAM. See config.embedding_use_gpu.
+            payload["options"] = {"num_gpu": 0}
+
         response = httpx.post(
             f"{self._base_url}/api/embed",
-            json={"model": self._model_id, "input": texts},
+            json=payload,
             timeout=self._timeout,
         )
         response.raise_for_status()
@@ -88,6 +95,7 @@ def _build(backend: str, model_id: str) -> EmbeddingProvider:
             model_id=model_id,
             base_url=settings.embedding_base_url,
             timeout=settings.embedding_timeout_seconds,
+            use_gpu=settings.embedding_use_gpu,
         )
     return FastEmbedProvider(model_id)
 
