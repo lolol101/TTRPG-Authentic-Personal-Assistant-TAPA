@@ -3,17 +3,17 @@ from sqlmodel import Field, SQLModel
 
 
 class Character(SQLModel, table=True):
-    """A PF2e character sheet.
+    """A character sheet belonging to one ruleset.
 
-    Core identity/combat fields are typed columns; less-structured parts of
-    the sheet (skills, feats, inventory) live in `sheet_data` as JSON. This
-    avoids modeling the entire PF2e sheet relationally up front — the
-    typed columns can grow as specific features (e.g. skill checks) need
-    to query into them directly.
+    Every game system has its own sheet, so `sheet_data` holds whatever that
+    system needs and `ruleset` says how to read it. The typed columns are the
+    small set common enough to query directly and shared across systems —
+    name, level, hit points, a defense number.
     """
 
     id: int | None = Field(default=None, primary_key=True)
     owner_id: int = Field(foreign_key="user.id", index=True)
+    ruleset: str = Field(default="pf2e", index=True)
 
     name: str
     ancestry: str = ""

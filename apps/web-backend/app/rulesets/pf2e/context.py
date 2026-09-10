@@ -1,7 +1,7 @@
 """Renders a character sheet into the text block sent to the LLM."""
 
-from app.core import pf2e
 from app.models.character import Character
+from app.rulesets.pf2e import rules as pf2e
 
 # Never leaves the backend: the ml-system-design rules forbid sending user PII
 # to the model, and these say nothing about the character's rules situation.

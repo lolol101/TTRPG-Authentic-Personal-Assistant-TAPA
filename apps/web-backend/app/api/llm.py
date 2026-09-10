@@ -7,8 +7,8 @@ from app.core.config import settings
 from app.core.db import get_session
 from app.models.character import Character
 from app.models.user import User
+from app.rulesets.pf2e.context import build_character_context
 from app.schemas.ask import AskRequest, AskResponse
-from app.services.character_context import build_character_context
 
 router = APIRouter(prefix="/llm", tags=["llm"])
 

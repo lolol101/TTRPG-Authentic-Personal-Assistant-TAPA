@@ -3,7 +3,7 @@
 If one side ever drifts from the other, one of these suites goes red.
 """
 
-from app.core import pf2e
+from app.rulesets.pf2e import rules as pf2e
 
 
 def test_untrained_gets_nothing_not_even_level() -> None:

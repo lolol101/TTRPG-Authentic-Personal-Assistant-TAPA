@@ -1,5 +1,3 @@
-import type { StatComponents } from '@/lib/pf2e'
-
 export interface UserResponse {
   id: number
   email: string
@@ -22,37 +20,16 @@ export interface AskResponse {
 }
 
 /**
- * Free-form half of the sheet — see the Character model in web-backend.
- * Holds the per-component breakdown behind every derived statistic; the
- * typed columns keep only the totals the backend itself needs to read.
+ * Ruleset-specific half of the sheet. Its shape is owned by the ruleset
+ * module (see src/rulesets/<ruleset>/types.ts) — every game system has its
+ * own sheet, so nothing generic may assume PF2e's fields.
  */
-export interface SheetData {
-  /** Keyed by skill, save, 'perception', 'armor_class' or 'class_dc'. */
-  stats?: Record<string, StatComponents>
-  conditions?: Record<string, number>
-  hp?: {
-    ancestry: number
-    per_level: number
-    item: number
-    other: number
-    penalty: number
-    temporary: number
-  }
-  armor?: { dex_cap: number | null; check_penalty: number }
-  class_dc_ability?: string
-  hero_points?: number
-  player_name?: string
-  heritage?: string
-  deity?: string
-  languages?: string
-  senses?: string
-  resistances?: string
-  notes?: string
-}
+export type SheetData = Record<string, unknown>
 
 export interface Character {
   id: number
   owner_id: number
+  ruleset: string
   name: string
   ancestry: string
   background: string
