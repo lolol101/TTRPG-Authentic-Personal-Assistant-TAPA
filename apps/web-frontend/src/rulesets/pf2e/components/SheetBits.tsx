@@ -148,45 +148,6 @@ export function RepeatingList<T>({
   )
 }
 
-export function FixedSlotList({
-  slots,
-  entries,
-  onChange,
-  emptyLabel,
-}: {
-  slots: string[]
-  entries: { slot: string; name: string }[]
-  onChange: (entries: { slot: string; name: string }[]) => void
-  emptyLabel?: string
-}) {
-  function valueFor(slot: string): string {
-    return entries.find((entry) => entry.slot === slot)?.name ?? ''
-  }
-
-  function setValue(slot: string, name: string) {
-    const rest = entries.filter((entry) => entry.slot !== slot)
-    onChange(name ? [...rest, { slot, name }] : rest)
-  }
-
-  return (
-    <div className="space-y-1.5">
-      {slots.map((slot) => (
-        <div key={slot} className="flex items-center gap-2">
-          <Input
-            value={valueFor(slot)}
-            onChange={(event) => setValue(slot, event.target.value)}
-            placeholder={emptyLabel}
-            className="h-8 flex-1"
-          />
-          <span className="w-28 shrink-0 text-right text-[10px] uppercase tracking-wide text-muted-foreground">
-            {slot}
-          </span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
 export function BigNumber({
   label,
   value,

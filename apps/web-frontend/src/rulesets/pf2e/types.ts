@@ -1,3 +1,4 @@
+import type { Card } from '@/rulesets/pf2e/cards'
 import type { AbilityKey, ProficiencyRank, StatComponents } from '@/rulesets/pf2e/domain'
 
 export interface Strike {
@@ -8,18 +9,6 @@ export interface Strike {
   damage_type: string
   other: string
   traits: string
-}
-
-export interface FeatEntry {
-  /** «ЧЕРТА 5», «ОСОБЕННОСТЬ 3» — the printed slot this fills. */
-  slot: string
-  name: string
-}
-
-export interface Item {
-  name: string
-  invested: boolean
-  bulk: string
 }
 
 export interface ActionEntry {
@@ -33,13 +22,6 @@ export interface ActionEntry {
 export interface FreeActionEntry extends ActionEntry {
   kind: 'free' | 'reaction'
   trigger: string
-}
-
-export interface SpellEntry {
-  name: string
-  level: string
-  actions: string
-  prepared: boolean
 }
 
 export interface SpellSlot {
@@ -98,13 +80,14 @@ export interface Pf2eSheetData {
 
   class_dc_ability?: AbilityKey
 
-  ancestry_feats?: FeatEntry[]
-  skill_feats?: FeatEntry[]
-  general_feats?: FeatEntry[]
-  class_feats?: FeatEntry[]
-  bonus_feats?: FeatEntry[]
+  // Feat cards, kept in the four groups the printed sheet uses.
+  ancestry_feats?: Card[]
+  skill_feats?: Card[]
+  general_feats?: Card[]
+  class_feats?: Card[]
+  bonus_feats?: Card[]
 
-  inventory?: { worn: Item[]; ready: Item[]; other: Item[] }
+  inventory?: { worn: Card[]; ready: Card[]; other: Card[] }
   coins?: Record<string, number>
 
   bio?: {
@@ -138,9 +121,9 @@ export interface Pf2eSheetData {
     slots?: SpellSlot[]
     focus_points?: { current: number; max: number }
   }
-  spells?: SpellEntry[]
-  focus_spells?: SpellEntry[]
-  innate_spells?: SpellEntry[]
+  spells?: Card[]
+  focus_spells?: Card[]
+  innate_spells?: Card[]
 
   notes?: string
 }
@@ -155,8 +138,6 @@ export const EMPTY_STRIKE: Strike = {
   traits: '',
 }
 
-export const EMPTY_ITEM: Item = { name: '', invested: false, bulk: '' }
-
 export const EMPTY_ACTION: ActionEntry = {
   name: '',
   actions: '',
@@ -166,5 +147,3 @@ export const EMPTY_ACTION: ActionEntry = {
 }
 
 export const EMPTY_FREE_ACTION: FreeActionEntry = { ...EMPTY_ACTION, kind: 'free', trigger: '' }
-
-export const EMPTY_SPELL: SpellEntry = { name: '', level: '', actions: '', prepared: false }
