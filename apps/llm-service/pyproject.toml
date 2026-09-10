@@ -11,6 +11,7 @@ dependencies = [
     "openai>=1.50",
     "chromadb>=0.5",
     "fastembed>=0.4",
+    "httpx>=0.28",
 ]
 
 [dependency-groups]

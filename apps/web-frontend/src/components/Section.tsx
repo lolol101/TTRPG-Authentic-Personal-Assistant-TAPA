@@ -51,12 +51,12 @@ export function Section({ id, title, summary, defaultOpen = false, className, ch
         <ChevronRight
           className={cn('size-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')}
         />
-        <span className="font-heading text-xl leading-none">{title}</span>
+        <span className="font-heading text-lg leading-none">{title}</span>
         {summary && !open && (
           <span className="ml-auto truncate font-sans text-xs text-muted-foreground">{summary}</span>
         )}
       </button>
-      {open && <CardContent className="border-t pt-4">{children}</CardContent>}
+      {open && <CardContent className="border-t py-4">{children}</CardContent>}
     </Card>
   )
 }

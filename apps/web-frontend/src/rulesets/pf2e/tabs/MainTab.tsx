@@ -191,7 +191,7 @@ export function MainTab() {
               <Input
                 value={draft.name}
                 onChange={(event) => setField('name', event.target.value)}
-                className="font-heading h-12 text-2xl"
+                className="font-heading h-12 text-xl"
               />
             </label>
             <div className="grid grid-cols-2 gap-2">

@@ -127,7 +127,9 @@ function App() {
           )}
         </TabsContent>
 
-        <TabsContent value="chat" className="mt-4">
+        {/* keepMounted: switching to the sheet must not tear down the chat —
+            otherwise a question in flight is lost and the thread resets. */}
+        <TabsContent value="chat" className="mt-4" keepMounted>
           <ChatPanel token={token} characters={characters} />
         </TabsContent>
       </Tabs>

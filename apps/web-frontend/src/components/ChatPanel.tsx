@@ -147,7 +147,7 @@ export function ChatPanel({ token, characters }: Props) {
       <div className="flex-1 space-y-3 overflow-y-auto rounded-md border bg-card/40 p-3">
         {messages.length === 0 && (
           <div className="flex h-full flex-col items-center justify-center gap-1 text-center">
-            <p className="font-heading text-2xl">Спроси про правила</p>
+            <p className="font-heading text-xl">Спроси про правила</p>
             <p className="max-w-md text-sm text-muted-foreground">
               Ответ строится только по проиндексированным правилам PF2e — сейчас это раздел
               действий с pf2.ru. Выбери персонажа, и его лист уйдёт в вопрос.

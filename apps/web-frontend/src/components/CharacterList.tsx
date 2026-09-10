@@ -35,7 +35,7 @@ export function CharacterList({ characters, onOpen, onCreate }: Props) {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle className="font-heading heading-marked text-2xl font-normal">
+          <CardTitle className="font-heading heading-marked text-xl font-normal">
             Новый персонаж
           </CardTitle>
         </CardHeader>
@@ -90,7 +90,7 @@ export function CharacterList({ characters, onOpen, onCreate }: Props) {
               onClick={() => onOpen(character)}
             >
               <CardHeader>
-                <CardTitle className="font-heading text-2xl font-normal">
+                <CardTitle className="font-heading text-xl font-normal">
                   {character.name}
                 </CardTitle>
               </CardHeader>

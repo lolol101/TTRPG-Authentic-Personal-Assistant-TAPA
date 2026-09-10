@@ -12,7 +12,7 @@ import {
 
 export function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <CardTitle className="font-heading heading-marked text-2xl font-normal">{children}</CardTitle>
+    <CardTitle className="font-heading heading-marked text-xl font-normal">{children}</CardTitle>
   )
 }
 
