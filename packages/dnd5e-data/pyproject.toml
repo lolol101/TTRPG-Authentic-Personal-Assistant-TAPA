@@ -1,0 +1,30 @@
+[project]
+name = "dnd5e-data"
+version = "0.1.0"
+description = "Offline ingestion of the D&D 5e SRD (CC-BY-4.0)"
+requires-python = ">=3.12"
+
+dependencies = [
+    "pydantic-settings>=2.0",
+    "pypdf>=5.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0", "ruff>=0.11"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]

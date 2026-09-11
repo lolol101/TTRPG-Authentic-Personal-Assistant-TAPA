@@ -4,6 +4,8 @@ from pydantic import BaseModel
 class AskRequest(BaseModel):
     question: str
     k: int | None = None
+    """Which game system to answer from; None searches everything."""
+    ruleset: str | None = None
     """Pre-rendered sheet from web-backend; already stripped of user PII."""
     character_context: str | None = None
     """Offer the sheet-editing tool. Only meaningful with a character."""

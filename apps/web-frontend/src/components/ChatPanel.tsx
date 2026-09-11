@@ -12,6 +12,7 @@ import {
   type ProposedChange,
 } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { DEFAULT_RULESET, QUESTION_RULESETS, rulesetLabel } from '@/rulesets/registry'
 
 const STORAGE_KEY = 'tapa.chat.history'
 
@@ -63,6 +64,7 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
   const [messages, setMessages] = useState<Message[]>(loadHistory)
   const [question, setQuestion] = useState('')
   const [characterId, setCharacterId] = useState<number | null>(null)
+  const [ruleset, setRuleset] = useState<string>(DEFAULT_RULESET)
   const [asking, setAsking] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
 
@@ -105,19 +107,25 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
 
     try {
       let streamed = ''
-      await api.askStream(token, text, characterId ?? undefined, {
-        onSources: (sources) => patchReply({ sources }),
-        onDelta: (piece) => {
-          streamed += piece
-          patchReply({ text: streamed })
+      await api.askStream(
+        token,
+        text,
+        characterId ?? undefined,
+        {
+          onSources: (sources) => patchReply({ sources }),
+          onDelta: (piece) => {
+            streamed += piece
+            patchReply({ text: streamed })
+          },
+          onDone: (result) =>
+            patchReply({
+              changes: result.proposed_changes,
+              rejected: result.rejected_changes,
+              streaming: false,
+            }),
         },
-        onDone: (result) =>
-          patchReply({
-            changes: result.proposed_changes,
-            rejected: result.rejected_changes,
-            streaming: false,
-          }),
-      })
+        character ? undefined : ruleset,
+      )
       patchReply({ streaming: false })
     } catch (caught) {
       patchReply({
@@ -194,6 +202,33 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
             Очистить
           </Button>
         )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+          По правилам
+        </span>
+        {QUESTION_RULESETS.map((entry) => (
+          <button
+            key={entry.id}
+            type="button"
+            disabled={character !== null}
+            onClick={() => setRuleset(entry.id)}
+            title={
+              character
+                ? `Систему задаёт выбранный персонаж (${rulesetLabel(character.ruleset)})`
+                : undefined
+            }
+            className={cn(
+              'rounded border px-2.5 py-1 text-xs transition-colors disabled:opacity-40',
+              (character ? character.ruleset : ruleset) === entry.id
+                ? 'border-secondary bg-secondary text-secondary-foreground'
+                : 'hover:bg-muted',
+            )}
+          >
+            {entry.label}
+          </button>
+        ))}
       </div>
 
       <div className="flex-1 space-y-3 overflow-y-auto rounded-md border bg-card/40 p-3">

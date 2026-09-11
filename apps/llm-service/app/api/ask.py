@@ -41,7 +41,7 @@ def _tools_for(payload: AskRequest) -> list[dict] | None:
 @router.post("/ask", response_model=AskResponse)
 def ask(payload: AskRequest) -> AskResponse:
     started_at = time.monotonic()
-    retrieved = retrieve(payload.question, payload.k)
+    retrieved = retrieve(payload.question, payload.k, ruleset=payload.ruleset)
     prompt = build_ask_prompt(
         payload.question,
         retrieved,
@@ -92,7 +92,7 @@ def ask_stream(payload: AskRequest) -> StreamingResponse:
     spinner for the whole generation.
     """
     started_at = time.monotonic()
-    retrieved = retrieve(payload.question, payload.k)
+    retrieved = retrieve(payload.question, payload.k, ruleset=payload.ruleset)
     prompt = build_ask_prompt(
         payload.question,
         retrieved,

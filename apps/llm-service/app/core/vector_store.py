@@ -41,9 +41,15 @@ def upsert(
     )
 
 
-def query(embedding: list[float], k: int) -> list[dict[str, Any]]:
-    """Return up to *k* nearest documents as {id, text, metadata, distance}."""
-    result = get_collection().query(query_embeddings=[embedding], n_results=k)
+def query(embedding: list[float], k: int, ruleset: str | None = None) -> list[dict[str, Any]]:
+    """Return up to *k* nearest documents as {id, text, metadata, distance}.
+
+    *ruleset* restricts the search to one game system. Without it a question
+    about D&D could be answered out of the Pathfinder books, which is worse
+    than finding nothing.
+    """
+    where = {"ruleset": ruleset} if ruleset else None
+    result = get_collection().query(query_embeddings=[embedding], n_results=k, where=where)
 
     ids = result["ids"][0]
     documents = result["documents"][0]

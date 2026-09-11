@@ -14,6 +14,7 @@ def test_to_metadata_flattens_traits_and_defaults_missing_fields() -> None:
         "source_book": "Основная книга игрока",
         "traits": ["Атака"],
         "language": "ru",
+        "ruleset": "pf2e",
     }
 
     metadata = ingest.to_metadata(record)
@@ -25,6 +26,7 @@ def test_to_metadata_flattens_traits_and_defaults_missing_fields() -> None:
         "source_book": "Основная книга игрока",
         "traits": "Атака",
         "language": "ru",
+        "ruleset": "pf2e",
     }
 
 

@@ -86,9 +86,28 @@ def test_ask_proxies_question_and_returns_answer(client, monkeypatch) -> None:
     assert captured["json"] == {
         "question": "Что делает Удар?",
         "k": None,
+        "ruleset": None,
         "character_context": None,
         "allow_sheet_edits": False,
     }
+
+
+def test_a_chosen_character_decides_which_rules_are_searched(client, monkeypatch) -> None:
+    headers = _auth_headers(client)
+    character_id = client.post(
+        "/characters", json={"name": "Рэм", "ruleset": "dnd5e"}, headers=headers
+    ).json()["id"]
+    captured: dict = {}
+    _stub_ask(monkeypatch, captured)
+
+    client.post(
+        "/llm/ask",
+        json={"question": "вопрос", "character_id": character_id, "ruleset": "pf2e"},
+        headers=headers,
+    )
+
+    # The sheet's own system wins over whatever the request asked for.
+    assert captured["json"]["ruleset"] == "dnd5e"
 
 
 def test_ask_sends_the_sheet_when_a_character_is_named(client, monkeypatch) -> None:

@@ -4,6 +4,8 @@ from pydantic import BaseModel
 class AskRequest(BaseModel):
     question: str
     k: int | None = None
+    """Which game system to answer from; a chosen character decides instead."""
+    ruleset: str | None = None
     """Answer for this character; must belong to the requesting user."""
     character_id: int | None = None
 

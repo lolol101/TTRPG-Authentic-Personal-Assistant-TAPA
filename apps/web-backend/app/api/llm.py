@@ -76,6 +76,9 @@ def ask(
     request_body = payload.model_dump(exclude={"character_id"})
     request_body["character_context"] = character_context
     request_body["allow_sheet_edits"] = character is not None
+    # A character settles which rules apply; asking Pathfinder questions of a
+    # D&D sheet is a mistake the app should not be able to make.
+    request_body["ruleset"] = character.ruleset if character else payload.ruleset
 
     try:
         response = httpx.post(
@@ -140,6 +143,9 @@ def ask_stream(
     request_body = payload.model_dump(exclude={"character_id"})
     request_body["character_context"] = character_context
     request_body["allow_sheet_edits"] = character is not None
+    # A character settles which rules apply; asking Pathfinder questions of a
+    # D&D sheet is a mistake the app should not be able to make.
+    request_body["ruleset"] = character.ruleset if character else payload.ruleset
 
     def events() -> Iterator[str]:
         try:
