@@ -249,31 +249,6 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
                 </p>
               )}
 
-              {message.sources && message.sources.length > 0 && (
-                <div className="space-y-1 border-t pt-2">
-                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Источники
-                  </p>
-                  <ul className="space-y-0.5 text-xs">
-                    {message.sources.map((source) => (
-                      <li key={source.url}>
-                        <a
-                          href={source.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-primary underline-offset-4 hover:underline"
-                        >
-                          {source.title}
-                        </a>
-                        {source.source_book && (
-                          <span className="text-muted-foreground"> — {source.source_book}</span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
               {message.changes && message.changes.length > 0 && (
                 <div className="space-y-2 border-t pt-2">
                   <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -311,6 +286,31 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
                   <ul className="space-y-0.5 text-xs text-muted-foreground">
                     {message.rejected.map((reason) => (
                       <li key={reason}>{reason}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {message.sources && message.sources.length > 0 && (
+                <div className="space-y-1 border-t pt-2">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Источники
+                  </p>
+                  <ul className="space-y-0.5 text-xs">
+                    {message.sources.map((source) => (
+                      <li key={source.url}>
+                        <a
+                          href={source.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-primary underline-offset-4 hover:underline"
+                        >
+                          {source.title}
+                        </a>
+                        {source.source_book && (
+                          <span className="text-muted-foreground"> — {source.source_book}</span>
+                        )}
+                      </li>
                     ))}
                   </ul>
                 </div>
