@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 
@@ -14,7 +15,14 @@ from app.sitemap import fetch_sitemap_urls, filter_by_prefix
 _log = logging.getLogger(__name__)
 
 
-def run(*, path_prefix: str, limit: int | None = None, output_dir: str | None = None) -> Path:
+def run(
+    *,
+    path_prefix: str,
+    limit: int | None = None,
+    output_dir: str | None = None,
+    on_selected: Callable[[int], None] | None = None,
+    on_page: Callable[[], None] | None = None,
+) -> Path:
     """Offline stage: sitemap -> scrape (cached) -> parse -> chunk -> jsonl.
 
     Deterministic and re-runnable: the same sitemap + prefix + limit always
@@ -24,6 +32,8 @@ def run(*, path_prefix: str, limit: int | None = None, output_dir: str | None = 
     urls = fetch_sitemap_urls(settings.sitemap_url, user_agent=settings.user_agent)
     selected = filter_by_prefix(urls, path_prefix=path_prefix, limit=limit)
     _log.info("Selected %d/%d sitemap URLs matching %s", len(selected), len(urls), path_prefix)
+    if on_selected is not None:
+        on_selected(len(selected))
 
     scraper = Scraper()
     out_path = Path(output_dir or settings.output_dir) / f"{path_prefix.strip('/')}.jsonl"
@@ -33,6 +43,8 @@ def run(*, path_prefix: str, limit: int | None = None, output_dir: str | None = 
     skipped = 0
     with out_path.open("w", encoding="utf-8") as fh:
         for raw_page in scraper.fetch_all(selected):
+            if on_page is not None:
+                on_page()
             try:
                 parsed = parse_page(raw_page)
             except UnrecognizedPageError as exc:
