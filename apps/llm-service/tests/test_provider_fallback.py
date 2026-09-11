@@ -40,7 +40,7 @@ def test_falls_back_when_the_primary_is_unreachable(monkeypatch) -> None:
 
     monkeypatch.setattr(llm_provider, "_complete_once", _fake_once)
 
-    completion = llm_provider.complete("вопрос")
+    completion = llm_provider.complete([{"role": "user", "content": "вопрос"}])
 
     assert tried == ["local", "cloud"]
     assert completion.text == "из облака"
@@ -57,7 +57,7 @@ def test_primary_answer_is_used_without_touching_the_fallback(monkeypatch) -> No
 
     monkeypatch.setattr(llm_provider, "_complete_once", _fake_once)
 
-    assert llm_provider.complete("вопрос").provider == "local"
+    assert llm_provider.complete([{"role": "user", "content": "вопрос"}]).provider == "local"
     assert tried == ["local"]
 
 
@@ -74,7 +74,7 @@ def test_a_bad_request_is_not_retried_elsewhere(monkeypatch) -> None:
     monkeypatch.setattr(llm_provider, "_complete_once", _fake_once)
 
     with pytest.raises(BadRequestError):
-        llm_provider.complete("вопрос")
+        llm_provider.complete([{"role": "user", "content": "вопрос"}])
     assert tried == ["local"]
 
 
@@ -87,7 +87,7 @@ def test_raises_when_every_provider_is_down(monkeypatch) -> None:
     monkeypatch.setattr(llm_provider, "_complete_once", _fake_once)
 
     with pytest.raises(APIConnectionError):
-        llm_provider.complete("вопрос")
+        llm_provider.complete([{"role": "user", "content": "вопрос"}])
 
 
 def test_no_configured_provider_is_reported_clearly(monkeypatch) -> None:
@@ -96,4 +96,4 @@ def test_no_configured_provider_is_reported_clearly(monkeypatch) -> None:
     llm_provider._clients.clear()
 
     with pytest.raises(llm_provider.LLMNotConfiguredError):
-        llm_provider.complete("вопрос")
+        llm_provider.complete([{"role": "user", "content": "вопрос"}])

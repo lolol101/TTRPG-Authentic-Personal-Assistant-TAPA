@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     chroma_collection_prefix: str = "pf2e_actions_ru"
     retrieval_k: int = 5
 
+    # What the dialogue may take of the model's window. The rules context is
+    # retrieved fresh every turn and is the point of the app, so it is served
+    # first; this is the leftover the chat history slides through.
+    history_token_budget: int = 3000
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

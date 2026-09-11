@@ -1,5 +1,7 @@
 from typing import Any
 
+from app.core.history import Turn
+
 ASK_SYSTEM_INSTRUCTIONS = (
     "Ты — помощник по правилам Pathfinder 2e (только открытый ORC-контент, "
     "переводы pf2.ru). Отвечай ТОЛЬКО на основе приведённого ниже контекста. "
@@ -15,6 +17,13 @@ CHARACTER_INSTRUCTIONS = (
 )
 
 
+HISTORY_INSTRUCTIONS = (
+    "Перед последним вопросом идут предыдущие сообщения этого чата. Они нужны "
+    "только чтобы понимать, о чём спрашивает игрок: твои прошлые ответы не "
+    "являются источником правил. Правила бери из контекста при последнем вопросе."
+)
+
+
 EDIT_INSTRUCTIONS = (
     "Если игрок просит изменить лист (получил урон, наложено состояние, "
     "потрачен пункт героизма, повысилось умение) — вызови инструмент "
@@ -24,30 +33,59 @@ EDIT_INSTRUCTIONS = (
 )
 
 
-def build_ask_prompt(
+def _context_block(retrieved: list[dict[str, Any]]) -> str:
+    if not retrieved:
+        return "(контекст не найден)"
+    return "\n\n".join(
+        f"[{i + 1}] {r['metadata']['title']} "
+        f"(источник: {r['metadata'].get('source_book') or 'неизвестен'}):\n{r['text']}"
+        for i, r in enumerate(retrieved)
+    )
+
+
+def build_system_prompt(
+    character_context: str | None = None,
+    allow_sheet_edits: bool = False,
+    with_history: bool = False,
+) -> str:
+    parts = [ASK_SYSTEM_INSTRUCTIONS]
+    if character_context:
+        parts.append(f"{CHARACTER_INSTRUCTIONS}\n\nЛист персонажа:\n{character_context}")
+        if allow_sheet_edits:
+            parts.append(EDIT_INSTRUCTIONS)
+    if with_history:
+        parts.append(HISTORY_INSTRUCTIONS)
+    return "\n\n".join(parts)
+
+
+def build_ask_messages(
     question: str,
     retrieved: list[dict[str, Any]],
     character_context: str | None = None,
     allow_sheet_edits: bool = False,
-) -> str:
-    if not retrieved:
-        context_block = "(контекст не найден)"
-    else:
-        context_block = "\n\n".join(
-            f"[{i + 1}] {r['metadata']['title']} "
-            f"(источник: {r['metadata'].get('source_book') or 'неизвестен'}):\n{r['text']}"
-            for i, r in enumerate(retrieved)
-        )
+    history: list[Turn] | None = None,
+) -> list[dict[str, Any]]:
+    """Instructions, then the remembered turns, then this question.
 
-    character_block = ""
-    if character_context:
-        character_block = f"{CHARACTER_INSTRUCTIONS}\n\nЛист персонажа:\n{character_context}\n\n"
-        if allow_sheet_edits:
-            character_block += f"{EDIT_INSTRUCTIONS}\n\n"
+    The retrieved rules travel with the question rather than sitting in the
+    system message: they were retrieved for *this* question, and putting them
+    above the dialogue invites the model to answer an earlier one with them.
+    """
+    history = history or []
 
-    return (
-        f"{ASK_SYSTEM_INSTRUCTIONS}\n\n"
-        f"{character_block}"
-        f"Контекст:\n{context_block}\n\n"
-        f"Вопрос: {question}"
+    messages: list[dict[str, Any]] = [
+        {
+            "role": "system",
+            "content": build_system_prompt(
+                character_context, allow_sheet_edits, with_history=bool(history)
+            ),
+        }
+    ]
+    messages.extend({"role": turn.role, "content": turn.text} for turn in history)
+    messages.append(
+        {
+            "role": "user",
+            "content": f"Контекст:\n{_context_block(retrieved)}\n\nВопрос: {question}",
+        }
     )
+    return messages
