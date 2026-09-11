@@ -13,6 +13,9 @@ dependencies = [
     "bcrypt>=4.2",
     "httpx>=0.28",
     "email-validator>=2.2",
+    # Postgres driver. The app runs on SQLite locally and Postgres in the
+    # cloud; only the connection string differs between them.
+    "psycopg[binary]>=3.2",
 ]
 
 [dependency-groups]
