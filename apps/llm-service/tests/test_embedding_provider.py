@@ -109,5 +109,21 @@ def test_no_gpu_option_is_sent_when_the_gpu_is_allowed(monkeypatch) -> None:
 def test_backend_is_chosen_by_config(monkeypatch) -> None:
     monkeypatch.setattr(module.settings, "embedding_backend", "ollama")
     monkeypatch.setattr(module.settings, "embedding_model_id", "bge-m3")
+    # build_embedding_provider() probes the backend for real before returning
+    # it. Without this stub the test would assert something about the machine
+    # it runs on — green where Ollama happens to be up, red everywhere else.
+    monkeypatch.setattr(module.OllamaEmbeddingProvider, "embed", lambda self, texts: [[0.0]])
 
     assert isinstance(build_embedding_provider(), OllamaEmbeddingProvider)
+
+
+def test_falls_back_when_the_configured_backend_is_unreachable(monkeypatch) -> None:
+    monkeypatch.setattr(module.settings, "embedding_backend", "ollama")
+    monkeypatch.setattr(module.settings, "embedding_model_id", "bge-m3")
+
+    def _unreachable(self, texts):
+        raise ConnectionError("ollama is down")
+
+    monkeypatch.setattr(module.OllamaEmbeddingProvider, "embed", _unreachable)
+
+    assert not isinstance(build_embedding_provider(), OllamaEmbeddingProvider)

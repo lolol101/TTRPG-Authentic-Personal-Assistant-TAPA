@@ -164,10 +164,31 @@ def _resolve_sheet(character: Character, change: ProposedChange) -> ResolvedChan
     raise ChangeRejected(f"Путь «{change.path}» недоступен для правки")
 
 
+_SHEET_PREFIX = "sheet_data."
+
+
+def normalize_path(path: str) -> str:
+    """Accepts the near-miss paths models actually produce.
+
+    The sheet reaches the model as a single document, so it reasonably writes
+    `sheet_data.hp_current` for what we store as a typed column. The intent is
+    unambiguous, so honour it rather than rejecting a correct suggestion on a
+    naming technicality — observed with a small model turning "heal me 20"
+    into `sheet_data.hp_max`, which was then silently dropped.
+    """
+    if path.startswith(_SHEET_PREFIX) and path[len(_SHEET_PREFIX) :] in COLUMN_FIELDS:
+        return path[len(_SHEET_PREFIX) :]
+    return path
+
+
 def resolve_change(character: Character, change: ProposedChange) -> ResolvedChange:
+    path = normalize_path(change.path)
+    if path != change.path:
+        change = ProposedChange(path=path, value=change.value, reason=change.reason)
+
     if change.path in COLUMN_FIELDS:
         return _resolve_column(character, change)
-    if change.path.startswith("sheet_data."):
+    if change.path.startswith(_SHEET_PREFIX):
         return _resolve_sheet(character, change)
     raise ChangeRejected(f"Путь «{change.path}» недоступен для правки")
 

@@ -28,6 +28,8 @@ interface Message {
   changes?: ProposedChange[]
   rejected?: string[]
   applied?: boolean
+  /** Still arriving — drives the caret and keeps the input disabled. */
+  streaming?: boolean
 }
 
 function loadHistory(): Message[] {
@@ -82,30 +84,47 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
     setQuestion('')
     setAsking(true)
 
+    // The reply is placed immediately and filled in as tokens arrive, so the
+    // wait shows progress instead of a spinner.
+    const replyId = newId()
+    setMessages((current) => [
+      ...current,
+      {
+        id: replyId,
+        role: 'assistant',
+        text: '',
+        characterId: characterId ?? undefined,
+        streaming: true,
+      },
+    ])
+
+    const patchReply = (patch: Partial<Message>) =>
+      setMessages((current) =>
+        current.map((entry) => (entry.id === replyId ? { ...entry, ...patch } : entry)),
+      )
+
     try {
-      const answer = await api.ask(token, text, characterId ?? undefined)
-      setMessages((current) => [
-        ...current,
-        {
-          id: newId(),
-          role: 'assistant',
-          text: answer.answer,
-          sources: answer.sources,
-          characterId: characterId ?? undefined,
-          changes: answer.proposed_changes,
-          rejected: answer.rejected_changes,
+      let streamed = ''
+      await api.askStream(token, text, characterId ?? undefined, {
+        onSources: (sources) => patchReply({ sources }),
+        onDelta: (piece) => {
+          streamed += piece
+          patchReply({ text: streamed })
         },
-      ])
+        onDone: (result) =>
+          patchReply({
+            changes: result.proposed_changes,
+            rejected: result.rejected_changes,
+            streaming: false,
+          }),
+      })
+      patchReply({ streaming: false })
     } catch (caught) {
-      setMessages((current) => [
-        ...current,
-        {
-          id: newId(),
-          role: 'assistant',
-          text: caught instanceof ApiError ? caught.message : 'Сервер недоступен',
-          failed: true,
-        },
-      ])
+      patchReply({
+        text: caught instanceof ApiError ? caught.message : 'Сервер недоступен',
+        failed: true,
+        streaming: false,
+      })
     } finally {
       setAsking(false)
     }
@@ -208,7 +227,27 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
                   за {message.characterName}
                 </p>
               )}
-              <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.text}</p>
+              {message.text && (
+                <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                  {message.text}
+                  {message.streaming && (
+                    <span className="ml-0.5 inline-block h-4 w-[2px] animate-pulse bg-current align-text-bottom" />
+                  )}
+                </p>
+              )}
+              {!message.text && (
+                <p className="text-xs text-muted-foreground">
+                  {message.streaming
+                    ? message.sources?.length
+                      ? 'Нашёл источники, пишу ответ…'
+                      : 'Ищу в правилах…'
+                    : // A model may answer a sheet request purely with a tool
+                      // call and no prose; an empty bubble would look broken.
+                      message.changes?.length
+                      ? 'Предлагаю изменить лист:'
+                      : 'Ответ пустой.'}
+                </p>
+              )}
 
               {message.sources && message.sources.length > 0 && (
                 <div className="space-y-1 border-t pt-2">
@@ -279,14 +318,6 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
             </div>
           </div>
         ))}
-
-        {asking && (
-          <div className="flex justify-start">
-            <div className="rounded-lg border bg-card px-3 py-2 text-sm text-muted-foreground">
-              Работаю…
-            </div>
-          </div>
-        )}
 
         <div ref={endRef} />
       </div>
