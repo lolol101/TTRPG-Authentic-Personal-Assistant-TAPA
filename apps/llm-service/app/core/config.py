@@ -1,8 +1,17 @@
 from pydantic_settings import BaseSettings
 
+from app.core.paths import service_dir
+
+
+def _default_chroma_dir() -> str:
+    return (service_dir("llm-service") / "vector_db").as_posix()
+
 
 class Settings(BaseSettings):
     app_name: str = "llm-service"
+    # Read by app.core.paths before Settings exists; declared so that having
+    # it in .env is not rejected as an unknown key.
+    tapa_data_dir: str = ""
 
     # OpenAI-compatible endpoint. Both OpenRouter and Ollama speak this API,
     # so switching provider is a config change, not a code change.
@@ -37,7 +46,7 @@ class Settings(BaseSettings):
     embedding_fallback_backend: str = "fastembed"
     embedding_fallback_model_id: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
-    chroma_persist_dir: str = "./data/vector_db"
+    chroma_persist_dir: str = _default_chroma_dir()
     chroma_collection_prefix: str = "pf2e_actions_ru"
     retrieval_k: int = 5
 
