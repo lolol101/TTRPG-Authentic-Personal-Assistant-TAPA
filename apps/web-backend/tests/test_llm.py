@@ -89,6 +89,7 @@ def test_ask_proxies_question_and_returns_answer(client, monkeypatch) -> None:
         "ruleset": None,
         "character_context": None,
         "allow_sheet_edits": False,
+        "history": [],
     }
 
 

@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24
 
+    # Quotas, not policy: they keep one runaway script from filling the
+    # database and burning a day of the provider's free tier. Generous enough
+    # that ordinary play never meets them.
+    max_chats_per_user: int = 50
+    max_messages_per_chat: int = 500
+    max_message_chars: int = 4000
+
     llm_service_url: str = "http://localhost:8100"
     # A local 14B on the GPU thinks longer than a hosted model did.
     llm_request_timeout_seconds: float = 300.0

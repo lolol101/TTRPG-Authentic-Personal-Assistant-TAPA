@@ -70,12 +70,9 @@ def _client_for(config: ProviderConfig) -> OpenAI:
 
 
 def _complete_once(
-    config: ProviderConfig, message: str, tools: list[dict[str, Any]] | None
+    config: ProviderConfig, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None
 ) -> Completion:
-    request: dict[str, Any] = {
-        "model": config.model,
-        "messages": [{"role": "user", "content": message}],
-    }
+    request: dict[str, Any] = {"model": config.model, "messages": messages}
     if tools:
         request["tools"] = tools
 
@@ -90,7 +87,9 @@ def _complete_once(
     return Completion(text=choice.content or "", proposed_changes=changes, provider=config.label)
 
 
-def complete(message: str, tools: list[dict[str, Any]] | None = None) -> Completion:
+def complete(
+    messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None
+) -> Completion:
     """One turn, falling through the provider chain if a provider is down.
 
     The local GPU is the primary; when that machine is off, the cloud
@@ -98,14 +97,12 @@ def complete(message: str, tools: list[dict[str, Any]] | None = None) -> Complet
     """
     chain = [config for config in providers() if config.api_key]
     if not chain:
-        raise LLMNotConfiguredError(
-            "LLM_API_KEY is not set — add it to .env (see .env.example)."
-        )
+        raise LLMNotConfiguredError("LLM_API_KEY is not set — add it to .env (see .env.example).")
 
     last_error: Exception | None = None
     for index, config in enumerate(chain):
         try:
-            completion = _complete_once(config, message, tools)
+            completion = _complete_once(config, messages, tools)
         except _FAILOVER_ERRORS as exc:
             last_error = exc
             remaining = len(chain) - index - 1
@@ -126,7 +123,7 @@ def complete(message: str, tools: list[dict[str, Any]] | None = None) -> Complet
 
 def get_completion(message: str) -> str:
     """Send a single user message to the configured LLM and return its reply."""
-    return complete(message).text
+    return complete([{"role": "user", "content": message}]).text
 
 
 def _accumulate_tool_calls(store: dict[int, dict[str, str]], deltas: Any) -> None:
@@ -143,14 +140,10 @@ def _accumulate_tool_calls(store: dict[int, dict[str, str]], deltas: Any) -> Non
 
 
 def _stream_once(
-    config: ProviderConfig, message: str, tools: list[dict[str, Any]] | None
+    config: ProviderConfig, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None
 ) -> Iterator[str | Completion]:
     """Yields text pieces, then one Completion carrying the assembled result."""
-    request: dict[str, Any] = {
-        "model": config.model,
-        "messages": [{"role": "user", "content": message}],
-        "stream": True,
-    }
+    request: dict[str, Any] = {"model": config.model, "messages": messages, "stream": True}
     if tools:
         request["tools"] = tools
 
@@ -172,13 +165,11 @@ def _stream_once(
         if call["name"] == PROPOSE_SHEET_CHANGE:
             changes.extend(parse_change_arguments(call["arguments"]))
 
-    yield Completion(
-        text="".join(text_parts), proposed_changes=changes, provider=config.label
-    )
+    yield Completion(text="".join(text_parts), proposed_changes=changes, provider=config.label)
 
 
 def stream(
-    message: str, tools: list[dict[str, Any]] | None = None
+    messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None
 ) -> Iterator[str | Completion]:
     """Streaming twin of complete(), with the same provider fallback.
 
@@ -188,15 +179,13 @@ def stream(
     """
     chain = [config for config in providers() if config.api_key]
     if not chain:
-        raise LLMNotConfiguredError(
-            "LLM_API_KEY is not set — add it to .env (see .env.example)."
-        )
+        raise LLMNotConfiguredError("LLM_API_KEY is not set — add it to .env (see .env.example).")
 
     last_error: Exception | None = None
     for index, config in enumerate(chain):
         started = False
         try:
-            for item in _stream_once(config, message, tools):
+            for item in _stream_once(config, messages, tools):
                 started = True
                 yield item
         except _FAILOVER_ERRORS as exc:

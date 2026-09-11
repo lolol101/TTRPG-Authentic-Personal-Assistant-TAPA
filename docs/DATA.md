@@ -14,7 +14,7 @@
 ```text
 D:/TAPA-data/
   web-backend/
-    dev.db              # пользователи и персонажи (SQLite)
+    dev.db              # пользователи, персонажи, чаты (SQLite)
   llm-service/
     vector_db/          # индекс Chroma — векторы правил
   pf2e-data/
@@ -26,7 +26,7 @@ D:/TAPA-data/
 
 | Папка | Потеря означает |
 |---|---|
-| `web-backend/dev.db` | **безвозвратно**: персонажи и аккаунты |
+| `web-backend/dev.db` | **безвозвратно**: персонажи, аккаунты и переписка в чатах |
 | `pf2e-data/chunks` | пересобирается из `html_cache` за минуты |
 | `llm-service/vector_db` | пересобирается из `chunks` за минуты |
 | `pf2e-data/html_cache` | пересобирается только повторным скачиванием — **часы** |

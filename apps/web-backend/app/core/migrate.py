@@ -14,8 +14,11 @@ from sqlalchemy import Engine, func, insert, select
 from sqlmodel import SQLModel
 
 # Importing the models is what puts them in SQLModel.metadata; without this
-# the target would be created empty and the copy would find no tables.
+# the target would be created empty and the copy would find no tables. A model
+# missing from this list is copied silently as nothing, so every table the app
+# owns has to be named here — test_migrate.py checks that from a clean import.
 from app.models.character import Character  # noqa: F401
+from app.models.chat import Chat, ChatMessage  # noqa: F401
 from app.models.user import User  # noqa: F401
 
 _log = logging.getLogger(__name__)

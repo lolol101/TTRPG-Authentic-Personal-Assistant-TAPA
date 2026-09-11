@@ -23,12 +23,45 @@ export interface ProposedChange {
   before: unknown
 }
 
+/** How much of the chat the model was actually shown. */
+export interface AskMemory {
+  used: number
+  dropped: number
+  tokens: number
+  budget: number
+}
+
 export interface AskResponse {
   answer: string
   sources: AskSource[]
   proposed_changes: ProposedChange[]
   rejected_changes: string[]
+  memory?: AskMemory
+  message_id?: number | null
 }
+
+export interface Chat {
+  id: number
+  title: string
+  ruleset: string
+  character_id: number | null
+  created_at: string
+  updated_at: string
+  message_count: number
+}
+
+export interface ChatMessage {
+  id: number
+  role: 'user' | 'assistant'
+  text: string
+  sources: AskSource[]
+  proposed_changes: ProposedChange[]
+  rejected_changes: string[]
+  applied: boolean
+  created_at: string
+}
+
+export type ChatUpdate = Partial<Pick<Chat, 'title' | 'ruleset' | 'character_id'>>
 
 /**
  * Ruleset-specific half of the sheet. Its shape is owned by the ruleset
@@ -123,10 +156,25 @@ export function buildPatchFromChanges(
   return patch as CharacterUpdate
 }
 
+export interface AskDone {
+  proposed_changes: ProposedChange[]
+  rejected_changes: string[]
+  memory?: AskMemory
+  message_id?: number | null
+}
+
 export interface AskStreamHandlers {
   onSources?: (sources: AskSource[]) => void
   onDelta?: (text: string) => void
-  onDone?: (result: { proposed_changes: ProposedChange[]; rejected_changes: string[] }) => void
+  onDone?: (result: AskDone) => void
+}
+
+export interface AskParams {
+  question: string
+  /** Continue this chat: it supplies the history and keeps the turn. */
+  chatId?: number
+  characterId?: number
+  ruleset?: string
 }
 
 /**
@@ -139,19 +187,18 @@ export interface AskStreamHandlers {
  */
 async function streamAsk(
   token: string,
-  question: string,
-  characterId: number | undefined,
+  params: AskParams,
   handlers: AskStreamHandlers,
-  ruleset?: string,
   signal?: AbortSignal,
 ): Promise<void> {
   const response = await fetch('/llm/ask/stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({
-      question,
-      character_id: characterId ?? null,
-      ruleset: ruleset ?? null,
+      question: params.question,
+      chat_id: params.chatId ?? null,
+      character_id: params.characterId ?? null,
+      ruleset: params.ruleset ?? null,
     }),
     signal,
   })
@@ -198,10 +245,7 @@ function handleFrame(frame: string, handlers: AskStreamHandlers): void {
 
   if (name === 'sources') handlers.onSources?.(data as AskSource[])
   else if (name === 'delta') handlers.onDelta?.((data as { text: string }).text)
-  else if (name === 'done')
-    handlers.onDone?.(
-      data as { proposed_changes: ProposedChange[]; rejected_changes: string[] },
-    )
+  else if (name === 'done') handlers.onDone?.(data as AskDone)
   else if (name === 'error') throw new ApiError((data as { detail: string }).detail)
 }
 
@@ -244,4 +288,24 @@ export const api = {
 
   deleteCharacter: (token: string, id: number) =>
     request<void>(`/characters/${id}`, token, { method: 'DELETE' }),
+
+  listChats: (token: string) => request<Chat[]>('/chats', token),
+
+  createChat: (token: string, payload: ChatUpdate = {}) =>
+    request<Chat>('/chats', token, { method: 'POST', body: JSON.stringify(payload) }),
+
+  updateChat: (token: string, id: number, payload: ChatUpdate) =>
+    request<Chat>(`/chats/${id}`, token, { method: 'PATCH', body: JSON.stringify(payload) }),
+
+  deleteChat: (token: string, id: number) =>
+    request<void>(`/chats/${id}`, token, { method: 'DELETE' }),
+
+  listMessages: (token: string, chatId: number) =>
+    request<ChatMessage[]>(`/chats/${chatId}/messages`, token),
+
+  markApplied: (token: string, chatId: number, messageId: number) =>
+    request<ChatMessage>(`/chats/${chatId}/messages/${messageId}`, token, {
+      method: 'PATCH',
+      body: JSON.stringify({ applied: true }),
+    }),
 }

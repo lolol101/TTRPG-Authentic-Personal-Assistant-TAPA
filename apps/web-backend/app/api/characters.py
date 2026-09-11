@@ -4,6 +4,7 @@ from sqlmodel import Session, select
 from app.api.deps import get_current_user
 from app.core.db import get_session
 from app.models.character import Character
+from app.models.chat import Chat
 from app.models.user import User
 from app.schemas.character import CharacterCreate, CharacterResponse, CharacterUpdate
 
@@ -70,5 +71,13 @@ def delete_character(
     session: Session = Depends(get_session),
 ) -> None:
     character = _get_owned_character(character_id, current_user, session)
+
+    # Chats outlive the characters they were about: the rules discussion in
+    # them is still worth reading. Postgres would refuse the delete outright
+    # while a chat still points here, so the link is cleared first.
+    for chat in session.exec(select(Chat).where(Chat.character_id == character.id)):
+        chat.character_id = None
+        session.add(chat)
+
     session.delete(character)
     session.commit()

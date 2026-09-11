@@ -13,15 +13,33 @@ from app.core.db import get_session  # noqa: E402
 from app.main import app  # noqa: E402
 
 
-@pytest.fixture(name="client")
-def client_fixture():
+@pytest.fixture(name="engine")
+def engine_fixture():
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
     SQLModel.metadata.create_all(engine)
+    return engine
 
+
+@pytest.fixture(name="session_factory")
+def session_factory_fixture(engine):
+    """Opens a session on the same database the client is talking to.
+
+    Lets a test check what actually landed in storage, rather than trusting
+    the endpoint that just reported success.
+    """
+
+    def _open() -> Session:
+        return Session(engine)
+
+    return _open
+
+
+@pytest.fixture(name="client")
+def client_fixture(engine):
     def get_session_override():
         with Session(engine) as session:
             yield session

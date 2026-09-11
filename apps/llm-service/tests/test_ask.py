@@ -81,3 +81,92 @@ def test_ask_passes_k_through_to_retrieve(monkeypatch) -> None:
     client.post("/ask", json={"question": "вопрос про Удар", "k": 3})
 
     assert captured == {"question": "вопрос про Удар", "k": 3}
+
+
+def test_history_reaches_the_model_as_earlier_turns(monkeypatch) -> None:
+    captured = {}
+
+    monkeypatch.setattr(ask, "retrieve", lambda question, k, ruleset=None: [])
+
+    def _fake_complete(messages, tools=None):
+        captured["messages"] = messages
+        return Completion("ok")
+
+    monkeypatch.setattr(ask, "complete", _fake_complete)
+
+    client.post(
+        "/ask",
+        json={
+            "question": "А если в броне?",
+            "history": [
+                {"role": "user", "text": "Как работает Захват?"},
+                {"role": "assistant", "text": "Захват обездвиживает цель."},
+            ],
+        },
+    )
+
+    roles = [message["role"] for message in captured["messages"]]
+    assert roles == ["system", "user", "assistant", "user"]
+    assert captured["messages"][2]["content"] == "Захват обездвиживает цель."
+
+
+def test_a_follow_up_is_searched_with_the_question_it_follows(monkeypatch) -> None:
+    captured = {}
+
+    def _fake_retrieve(question, k, ruleset=None):
+        captured["question"] = question
+        return []
+
+    monkeypatch.setattr(ask, "retrieve", _fake_retrieve)
+    monkeypatch.setattr(ask, "complete", lambda messages, tools=None: Completion("ok"))
+
+    client.post(
+        "/ask",
+        json={
+            "question": "А если в броне?",
+            "history": [{"role": "user", "text": "Как работает Захват?"}],
+        },
+    )
+
+    assert "Захват" in captured["question"]
+
+
+def test_the_answer_reports_how_much_of_the_chat_was_remembered(monkeypatch) -> None:
+    monkeypatch.setattr(ask, "retrieve", lambda question, k, ruleset=None: [])
+    monkeypatch.setattr(ask, "complete", lambda messages, tools=None: Completion("ok"))
+
+    response = client.post(
+        "/ask",
+        json={
+            "question": "вопрос",
+            "history": [{"role": "user", "text": "раньше"}],
+        },
+    )
+
+    memory = response.json()["memory"]
+    assert memory["used"] == 1
+    assert memory["dropped"] == 0
+    assert memory["budget"] > 0
+
+
+def test_turns_that_do_not_fit_the_budget_are_reported_as_dropped(monkeypatch) -> None:
+    """The reader is told where memory ends rather than left to guess."""
+    monkeypatch.setattr(ask, "retrieve", lambda question, k, ruleset=None: [])
+    monkeypatch.setattr(ask, "complete", lambda messages, tools=None: Completion("ok"))
+    monkeypatch.setattr(ask.settings, "history_token_budget", 30)
+
+    response = client.post(
+        "/ask",
+        json={
+            "question": "вопрос",
+            "history": [
+                {"role": "user", "text": "очень длинный вопрос " * 50},
+                {"role": "assistant", "text": "очень длинный ответ " * 50},
+                {"role": "user", "text": "короткий"},
+            ],
+        },
+    )
+
+    memory = response.json()["memory"]
+    assert memory["used"] == 1
+    assert memory["dropped"] == 2
