@@ -5,10 +5,12 @@ from fastapi import FastAPI
 from app.api import auth, characters, health, llm
 from app.core.config import settings
 from app.core.db import init_db
+from app.core.security import verify_security_config
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    verify_security_config()
     init_db()
     yield
 

@@ -6,7 +6,10 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./data/dev.db"
 
-    jwt_secret_key: str = "dev-only-insecure-default-secret-change-me-in-env"
+    # No default on purpose. A secret committed to the repository is not a
+    # secret: anyone who has seen the code can forge any user's token.
+    # verify_security_config() refuses to start without a real one.
+    jwt_secret_key: str = ""
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24
 
