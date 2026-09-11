@@ -5,6 +5,52 @@ import jwt
 
 from app.core.config import settings
 
+MINIMUM_SECRET_LENGTH = 32
+
+# Values that have appeared as placeholders in this repo or its .env.example.
+# Any of them means nobody set a real secret.
+_KNOWN_PLACEHOLDERS = frozenset(
+    {
+        "dev-only-insecure-default-secret-change-me-in-env",
+        "change-me-to-a-random-32-byte-secret",
+        "change-me",
+        "changeme",
+        "secret",
+    }
+)
+
+
+class InsecureConfigurationError(RuntimeError):
+    """Raised when the app is configured in a way that cannot be safe."""
+
+
+def verify_security_config() -> None:
+    """Refuse to run without a real signing key.
+
+    Called from the app's lifespan, so a misconfigured deployment fails
+    loudly at startup instead of happily issuing forgeable tokens.
+    """
+    secret = settings.jwt_secret_key.strip()
+
+    if not secret:
+        raise InsecureConfigurationError(
+            "JWT_SECRET_KEY не задан. Сгенерируй ключ и положи его в .env:\n"
+            '    python -c "import secrets; print(secrets.token_urlsafe(48))"'
+        )
+
+    if secret in _KNOWN_PLACEHOLDERS:
+        raise InsecureConfigurationError(
+            "JWT_SECRET_KEY — это значение-заглушка из репозитория. "
+            "Любой, кто видел код, подделает токен любого пользователя. "
+            "Сгенерируй настоящий ключ."
+        )
+
+    if len(secret) < MINIMUM_SECRET_LENGTH:
+        raise InsecureConfigurationError(
+            f"JWT_SECRET_KEY короче {MINIMUM_SECRET_LENGTH} символов "
+            f"(сейчас {len(secret)}) — такой ключ перебирается."
+        )
+
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")

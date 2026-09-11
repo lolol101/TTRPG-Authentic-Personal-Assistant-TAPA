@@ -1,10 +1,16 @@
-import pytest
-from fastapi.testclient import TestClient
-from sqlmodel import Session, SQLModel, create_engine
-from sqlmodel.pool import StaticPool
+import os
 
-from app.core.db import get_session
-from app.main import app
+# Must precede any app import: Settings is built when app.core.config is first
+# imported, and the app now refuses to run without a real signing key.
+os.environ.setdefault("JWT_SECRET_KEY", "test-only-secret-long-enough-to-pass-validation")
+
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from sqlmodel import Session, SQLModel, create_engine  # noqa: E402
+from sqlmodel.pool import StaticPool  # noqa: E402
+
+from app.core.db import get_session  # noqa: E402
+from app.main import app  # noqa: E402
 
 
 @pytest.fixture(name="client")
