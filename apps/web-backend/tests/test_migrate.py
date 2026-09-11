@@ -1,3 +1,7 @@
+import subprocess
+import sys
+import textwrap
+
 import pytest
 from sqlalchemy import func, select
 from sqlmodel import Session, SQLModel, create_engine
@@ -95,3 +99,25 @@ def test_password_is_never_printed_when_reporting_the_destination() -> None:
 
     assert "s3cret" not in shown
     assert shown.startswith("postgresql+psycopg://user:***@host")
+
+
+def test_migration_sees_every_table_the_app_owns() -> None:
+    """Guards the import list in migrate.py from a clean interpreter.
+
+    Within the test suite every model is already imported by something else,
+    which would hide a model missing from that list — and a table missing
+    there is copied silently as nothing.
+    """
+    source = textwrap.dedent(
+        """
+        from app.core import migrate
+        from sqlmodel import SQLModel
+        print(",".join(sorted(SQLModel.metadata.tables)))
+        """
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", source], capture_output=True, text=True, check=True
+    )
+
+    assert set(result.stdout.strip().split(",")) == {"user", "character", "chat", "chatmessage"}
