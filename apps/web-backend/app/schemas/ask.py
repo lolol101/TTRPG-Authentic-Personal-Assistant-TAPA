@@ -14,6 +14,19 @@ class Source(BaseModel):
     source_book: str = ""
 
 
+class ProposedChange(BaseModel):
+    path: str
+    value: object = None
+    reason: str = ""
+    """Human-readable field name and the value this would replace."""
+    label: str = ""
+    before: object = None
+
+
 class AskResponse(BaseModel):
     answer: str
     sources: list[Source]
+    """Sheet edits the assistant suggests — applied only once confirmed."""
+    proposed_changes: list[ProposedChange] = []
+    """Suggestions dropped by validation, with the reason."""
+    rejected_changes: list[str] = []

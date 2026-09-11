@@ -3,6 +3,7 @@ from pydantic import BaseModel
 
 class CharacterCreate(BaseModel):
     name: str
+    ruleset: str = "pf2e"
     ancestry: str = ""
     background: str = ""
     class_name: str = ""
@@ -48,6 +49,7 @@ class CharacterUpdate(BaseModel):
 class CharacterResponse(BaseModel):
     id: int
     owner_id: int
+    ruleset: str
     name: str
     ancestry: str
     background: str

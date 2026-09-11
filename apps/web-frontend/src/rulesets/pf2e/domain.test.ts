@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { computeMaxHp, computeStat, proficiencyBonus, type StatComponents } from '@/lib/pf2e'
+import {
+  bulkLimits,
+  computeMaxHp,
+  computeStat,
+  modifierFromScore,
+  proficiencyBonus,
+  type StatComponents,
+} from '@/rulesets/pf2e/domain'
 
 const NONE: StatComponents = { rank: 'untrained', item: 0, temporary: 0 }
 
@@ -66,7 +73,7 @@ describe('computeStat', () => {
       level: 2,
       components: { rank: 'trained', item: 0, temporary: 0 },
     })
-    expect(parts.map((part) => part.label)).toEqual(['МДР', 'Владение (Тренирован)'])
+    expect(parts.map((part) => part.label)).toEqual(['МДР', 'Умение (Изученный)'])
   })
 })
 
@@ -88,5 +95,25 @@ describe('computeMaxHp', () => {
     expect(
       computeMaxHp({ ancestry: 0, perLevel: 0, conMod: 0, level: 3, item: 0, other: 45, penalty: 0 }),
     ).toBe(45)
+  })
+})
+
+describe('modifierFromScore', () => {
+  it('follows the sheet: (значение - 10) / 2, rounded down', () => {
+    expect(modifierFromScore(18)).toBe(4)
+    expect(modifierFromScore(10)).toBe(0)
+    expect(modifierFromScore(11)).toBe(0)
+  })
+
+  it('rounds odd low scores down, not toward zero', () => {
+    expect(modifierFromScore(9)).toBe(-1)
+    expect(modifierFromScore(7)).toBe(-2)
+  })
+})
+
+describe('bulkLimits', () => {
+  it('encumbers at 5 + Str and caps at 10 + Str', () => {
+    expect(bulkLimits(3)).toEqual({ encumbered: 8, maximum: 13 })
+    expect(bulkLimits(-1)).toEqual({ encumbered: 4, maximum: 9 })
   })
 })

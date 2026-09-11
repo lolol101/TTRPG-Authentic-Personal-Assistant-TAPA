@@ -1,5 +1,3 @@
-import type { StatComponents } from '@/lib/pf2e'
-
 export interface UserResponse {
   id: number
   email: string
@@ -16,43 +14,33 @@ export interface AskSource {
   source_book: string
 }
 
+/** A sheet edit the assistant suggests. Applied only when the player says so. */
+export interface ProposedChange {
+  path: string
+  value: unknown
+  reason: string
+  label: string
+  before: unknown
+}
+
 export interface AskResponse {
   answer: string
   sources: AskSource[]
+  proposed_changes: ProposedChange[]
+  rejected_changes: string[]
 }
 
 /**
- * Free-form half of the sheet — see the Character model in web-backend.
- * Holds the per-component breakdown behind every derived statistic; the
- * typed columns keep only the totals the backend itself needs to read.
+ * Ruleset-specific half of the sheet. Its shape is owned by the ruleset
+ * module (see src/rulesets/<ruleset>/types.ts) — every game system has its
+ * own sheet, so nothing generic may assume PF2e's fields.
  */
-export interface SheetData {
-  /** Keyed by skill, save, 'perception', 'armor_class' or 'class_dc'. */
-  stats?: Record<string, StatComponents>
-  conditions?: Record<string, number>
-  hp?: {
-    ancestry: number
-    per_level: number
-    item: number
-    other: number
-    penalty: number
-    temporary: number
-  }
-  armor?: { dex_cap: number | null; check_penalty: number }
-  class_dc_ability?: string
-  hero_points?: number
-  player_name?: string
-  heritage?: string
-  deity?: string
-  languages?: string
-  senses?: string
-  resistances?: string
-  notes?: string
-}
+export type SheetData = Record<string, unknown>
 
 export interface Character {
   id: number
   owner_id: number
+  ruleset: string
   name: string
   ancestry: string
   background: string
@@ -99,6 +87,39 @@ async function request<T>(path: string, token: string | null, init?: RequestInit
 
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
+}
+
+/**
+ * Turns validated proposals into a PATCH body.
+ *
+ * The backend already decided each path is writable; this only merges them
+ * into the character's current sheet so untouched fields survive the patch.
+ */
+export function buildPatchFromChanges(
+  character: Character,
+  changes: ProposedChange[],
+): CharacterUpdate {
+  const patch: Record<string, unknown> = {}
+  let sheet: Record<string, unknown> | null = null
+
+  for (const change of changes) {
+    if (!change.path.startsWith('sheet_data.')) {
+      patch[change.path] = change.value
+      continue
+    }
+    sheet ??= structuredClone(character.sheet_data ?? {}) as Record<string, unknown>
+    const parts = change.path.split('.').slice(1)
+    let target = sheet
+    for (const part of parts.slice(0, -1)) {
+      const nested = target[part]
+      if (typeof nested !== 'object' || nested === null) target[part] = {}
+      target = target[part] as Record<string, unknown>
+    }
+    target[parts[parts.length - 1]] = change.value
+  }
+
+  if (sheet) patch.sheet_data = sheet
+  return patch as CharacterUpdate
 }
 
 export const api = {

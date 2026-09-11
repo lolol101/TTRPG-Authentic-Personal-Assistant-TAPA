@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 from openai import OpenAIError
 
 from app.api import ask
-from app.core.llm_provider import LLMNotConfiguredError
+from app.core.llm_provider import Completion, LLMNotConfiguredError
 from app.main import app
 
 client = TestClient(app)
@@ -23,7 +23,9 @@ _FAKE_RETRIEVED = [
 
 def test_ask_returns_answer_and_sources(monkeypatch) -> None:
     monkeypatch.setattr(ask, "retrieve", lambda question, k: _FAKE_RETRIEVED)
-    monkeypatch.setattr(ask, "get_completion", lambda prompt: "Удар наносит урон.")
+    monkeypatch.setattr(
+        ask, "complete", lambda prompt, tools=None: Completion("Удар наносит урон.")
+    )
 
     response = client.post("/ask", json={"question": "Что делает Удар?"})
 
@@ -42,10 +44,10 @@ def test_ask_returns_answer_and_sources(monkeypatch) -> None:
 def test_ask_returns_503_when_not_configured(monkeypatch) -> None:
     monkeypatch.setattr(ask, "retrieve", lambda question, k: [])
 
-    def _raise(prompt: str) -> str:
+    def _raise(prompt, tools=None):
         raise LLMNotConfiguredError("LLM_API_KEY is not set")
 
-    monkeypatch.setattr(ask, "get_completion", _raise)
+    monkeypatch.setattr(ask, "complete", _raise)
 
     response = client.post("/ask", json={"question": "вопрос"})
 
@@ -55,10 +57,10 @@ def test_ask_returns_503_when_not_configured(monkeypatch) -> None:
 def test_ask_returns_502_on_provider_error(monkeypatch) -> None:
     monkeypatch.setattr(ask, "retrieve", lambda question, k: [])
 
-    def _raise(prompt: str) -> str:
+    def _raise(prompt, tools=None):
         raise OpenAIError("boom")
 
-    monkeypatch.setattr(ask, "get_completion", _raise)
+    monkeypatch.setattr(ask, "complete", _raise)
 
     response = client.post("/ask", json={"question": "вопрос"})
 
@@ -74,7 +76,7 @@ def test_ask_passes_k_through_to_retrieve(monkeypatch) -> None:
         return []
 
     monkeypatch.setattr(ask, "retrieve", _fake_retrieve)
-    monkeypatch.setattr(ask, "get_completion", lambda prompt: "ok")
+    monkeypatch.setattr(ask, "complete", lambda prompt, tools=None: Completion("ok"))
 
     client.post("/ask", json={"question": "вопрос про Удар", "k": 3})
 

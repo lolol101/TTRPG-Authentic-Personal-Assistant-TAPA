@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60 * 24
 
     llm_service_url: str = "http://localhost:8100"
+    # A local 14B on the GPU thinks longer than a hosted model did.
+    llm_request_timeout_seconds: float = 300.0
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

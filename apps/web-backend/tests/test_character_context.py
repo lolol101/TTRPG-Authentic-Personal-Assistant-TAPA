@@ -1,5 +1,5 @@
 from app.models.character import Character
-from app.services.character_context import build_character_context
+from app.rulesets.pf2e.context import build_character_context
 
 
 def _character(**overrides) -> Character:
@@ -38,13 +38,13 @@ def test_resolves_skill_totals_so_the_model_never_does_arithmetic() -> None:
     context = build_character_context(character)
 
     # 4 STR + 9 expert-at-5 + 1 item - 2 armor = 12
-    assert "Атлетика (СИЛ): +12 [эксперт]" in context
+    assert "Атлетика (СИЛ): +12 [экспертный]" in context
 
 
 def test_untrained_skill_shows_only_its_ability_modifier() -> None:
     context = build_character_context(_character())
 
-    assert "Дипломатия (ХАР): +0 [нетренирован]" in context
+    assert "Дипломатия (ХАР): +0 [неизученный]" in context
 
 
 def test_armor_penalty_does_not_touch_skills_it_should_not() -> None:
@@ -53,7 +53,7 @@ def test_armor_penalty_does_not_touch_skills_it_should_not() -> None:
     context = build_character_context(character)
 
     assert "Дипломатия (ХАР): +0" in context
-    assert "Акробатика (ЛОВ): +0 [нетренирован]" in context
+    assert "Акробатика (ЛВК): +0 [неизученный]" in context
 
 
 def test_computes_max_hp_from_its_composition() -> None:

@@ -1,12 +1,24 @@
 import pytest
 
 from app.core import vector_store
+from app.core.embedding_provider import EmbeddingProvider
+
+
+class _StubProvider(EmbeddingProvider):
+    """The collection name is derived from the model, so tests need one."""
+
+    @property
+    def model_id(self) -> str:
+        return "test-model"
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return [[1.0, 0.0] for _ in texts]
 
 
 @pytest.fixture(autouse=True)
 def _isolated_chroma(tmp_path, monkeypatch):
     monkeypatch.setattr(vector_store.settings, "chroma_persist_dir", str(tmp_path))
-    monkeypatch.setattr(vector_store.settings, "chroma_collection", "test_collection")
+    monkeypatch.setattr(vector_store, "get_embedding_provider", lambda: _StubProvider())
     monkeypatch.setattr(vector_store, "_collection", None)
     yield
     monkeypatch.setattr(vector_store, "_collection", None)

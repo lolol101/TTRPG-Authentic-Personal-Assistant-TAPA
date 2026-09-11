@@ -15,10 +15,20 @@ CHARACTER_INSTRUCTIONS = (
 )
 
 
+EDIT_INSTRUCTIONS = (
+    "Если игрок просит изменить лист (получил урон, наложено состояние, "
+    "потрачен пункт героизма, повысилось умение) — вызови инструмент "
+    "propose_sheet_change. Изменения не применяются сразу: игрок подтверждает "
+    "их вручную, поэтому предлагай только то, о чём тебя действительно "
+    "попросили, и передавай новое значение целиком, а не разницу."
+)
+
+
 def build_ask_prompt(
     question: str,
     retrieved: list[dict[str, Any]],
     character_context: str | None = None,
+    allow_sheet_edits: bool = False,
 ) -> str:
     if not retrieved:
         context_block = "(контекст не найден)"
@@ -32,6 +42,8 @@ def build_ask_prompt(
     character_block = ""
     if character_context:
         character_block = f"{CHARACTER_INSTRUCTIONS}\n\nЛист персонажа:\n{character_context}\n\n"
+        if allow_sheet_edits:
+            character_block += f"{EDIT_INSTRUCTIONS}\n\n"
 
     return (
         f"{ASK_SYSTEM_INSTRUCTIONS}\n\n"

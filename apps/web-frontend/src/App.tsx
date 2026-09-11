@@ -1,18 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
-import { AskPanel } from '@/components/AskPanel'
 import { AuthPanel } from '@/components/AuthPanel'
 import { CharacterList } from '@/components/CharacterList'
-import { CharacterSheet } from '@/components/CharacterSheet'
+import { ChatPanel } from '@/components/ChatPanel'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { api, ApiError, type Character, type CharacterUpdate } from '@/lib/api'
+import { rulesetById, rulesetLabel } from '@/rulesets/registry'
 
 const TOKEN_STORAGE_KEY = 'tapa.token'
 
 function App() {
-  const [token, setToken] = useState<string | null>(() =>
-    localStorage.getItem(TOKEN_STORAGE_KEY),
-  )
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_STORAGE_KEY))
   const [email, setEmail] = useState<string | null>(null)
   const [characters, setCharacters] = useState<Character[]>([])
   const [openCharacter, setOpenCharacter] = useState<Character | null>(null)
@@ -54,9 +52,9 @@ function App() {
     setToken(newToken)
   }
 
-  async function handleCreate(name: string) {
+  async function handleCreate(name: string, ruleset: string) {
     if (!token) return
-    const created = await api.createCharacter(token, { name })
+    const created = await api.createCharacter(token, { name, ruleset })
     setCharacters((current) => [...current, created])
     setOpenCharacter(created)
   }
@@ -68,6 +66,14 @@ function App() {
     setOpenCharacter(updated)
   }
 
+  /** Applies an assistant proposal the player confirmed in the chat. */
+  async function handleApplyChanges(characterId: number, patch: CharacterUpdate) {
+    if (!token) return
+    const updated = await api.updateCharacter(token, characterId, patch)
+    setCharacters((current) => current.map((c) => (c.id === updated.id ? updated : c)))
+    setOpenCharacter((current) => (current?.id === updated.id ? updated : current))
+  }
+
   async function handleDelete() {
     if (!token || !openCharacter) return
     await api.deleteCharacter(token, openCharacter.id)
@@ -77,11 +83,13 @@ function App() {
 
   if (!token) return <AuthPanel onLoggedIn={handleLoggedIn} />
 
+  const Sheet = openCharacter ? rulesetById(openCharacter.ruleset)?.Sheet : undefined
+
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6">
+    <div className="mx-auto max-w-7xl px-4 py-6">
       <header className="mb-6 flex flex-wrap items-center gap-3">
         <h1 className="font-heading text-3xl">TAPA</h1>
-        <span className="text-sm text-muted-foreground">Pathfinder 2e</span>
+        <span className="text-sm text-muted-foreground">Ассистент за игровым столом</span>
         <div className="ml-auto flex items-center gap-3">
           {email && <span className="text-sm text-muted-foreground">{email}</span>}
           <Button variant="outline" size="sm" onClick={logOut}>
@@ -95,18 +103,29 @@ function App() {
       <Tabs defaultValue="characters">
         <TabsList>
           <TabsTrigger value="characters">Персонажи</TabsTrigger>
-          <TabsTrigger value="rules">Правила</TabsTrigger>
+          <TabsTrigger value="chat">Чат</TabsTrigger>
         </TabsList>
 
         <TabsContent value="characters" className="mt-4">
           {openCharacter ? (
-            <CharacterSheet
-              key={openCharacter.id}
-              character={openCharacter}
-              onSave={handleSave}
-              onDelete={handleDelete}
-              onBack={() => setOpenCharacter(null)}
-            />
+            Sheet ? (
+              <Sheet
+                key={openCharacter.id}
+                character={openCharacter}
+                onSave={handleSave}
+                onDelete={handleDelete}
+                onBack={() => setOpenCharacter(null)}
+              />
+            ) : (
+              <div className="space-y-3">
+                <Button variant="ghost" onClick={() => setOpenCharacter(null)}>
+                  ← К списку
+                </Button>
+                <p className="text-sm text-destructive">
+                  Лист для системы «{rulesetLabel(openCharacter.ruleset)}» пока не реализован.
+                </p>
+              </div>
+            )
           ) : (
             <CharacterList
               characters={characters}
@@ -116,8 +135,10 @@ function App() {
           )}
         </TabsContent>
 
-        <TabsContent value="rules" className="mt-4">
-          <AskPanel token={token} characters={characters} />
+        {/* keepMounted: switching to the sheet must not tear down the chat —
+            otherwise a question in flight is lost and the thread resets. */}
+        <TabsContent value="chat" className="mt-4" keepMounted>
+          <ChatPanel token={token} characters={characters} onApplyChanges={handleApplyChanges} />
         </TabsContent>
       </Tabs>
     </div>

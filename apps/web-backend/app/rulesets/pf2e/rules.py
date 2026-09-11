@@ -20,17 +20,17 @@ _PROFICIENCY_BONUS: dict[str, int] = {
 }
 
 RANK_LABEL: dict[str, str] = {
-    "untrained": "нетренирован",
-    "trained": "тренирован",
-    "expert": "эксперт",
-    "master": "мастер",
-    "legendary": "легенда",
+    "untrained": "неизученный",
+    "trained": "изученный",
+    "expert": "экспертный",
+    "master": "мастерский",
+    "legendary": "легендарный",
 }
 
 ABILITY_LABEL: dict[str, str] = {
     "str": "СИЛ",
-    "dex": "ЛОВ",
-    "con": "ТЕЛ",
+    "dex": "ЛВК",
+    "con": "ВЫН",
     "int": "ИНТ",
     "wis": "МДР",
     "cha": "ХАР",
@@ -46,7 +46,7 @@ _ARMOR_PENALIZED = {"acrobatics", "athletics", "stealth", "thievery"}
 
 SKILLS: list[tuple[str, str, str]] = [
     ("acrobatics", "Акробатика", "dex"),
-    ("arcana", "Магия", "int"),
+    ("arcana", "Мистицизм", "int"),
     ("athletics", "Атлетика", "str"),
     ("crafting", "Ремесло", "int"),
     ("deception", "Обман", "cha"),
@@ -55,7 +55,7 @@ SKILLS: list[tuple[str, str, str]] = [
     ("medicine", "Медицина", "wis"),
     ("nature", "Природа", "wis"),
     ("occultism", "Оккультизм", "int"),
-    ("performance", "Выступление", "cha"),
+    ("performance", "Исполнение", "cha"),
     ("religion", "Религия", "wis"),
     ("society", "Общество", "int"),
     ("stealth", "Скрытность", "dex"),
