@@ -142,12 +142,17 @@ async function streamAsk(
   question: string,
   characterId: number | undefined,
   handlers: AskStreamHandlers,
+  ruleset?: string,
   signal?: AbortSignal,
 ): Promise<void> {
   const response = await fetch('/llm/ask/stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ question, character_id: characterId ?? null }),
+    body: JSON.stringify({
+      question,
+      character_id: characterId ?? null,
+      ruleset: ruleset ?? null,
+    }),
     signal,
   })
 

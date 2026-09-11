@@ -1,10 +1,20 @@
 from pydantic_settings import BaseSettings
 
+from app.core.paths import service_dir
+
+
+def _default_database_url() -> str:
+    path = (service_dir("web-backend") / "dev.db").as_posix()
+    return f"sqlite:///{path}"
+
 
 class Settings(BaseSettings):
     app_name: str = "web-backend"
+    # Read by app.core.paths before Settings exists; declared so that having
+    # it in .env is not rejected as an unknown key.
+    tapa_data_dir: str = ""
 
-    database_url: str = "sqlite:///./data/dev.db"
+    database_url: str = _default_database_url()
 
     # No default on purpose. A secret committed to the repository is not a
     # secret: anyone who has seen the code can forge any user's token.

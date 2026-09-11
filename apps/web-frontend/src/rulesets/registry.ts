@@ -32,6 +32,17 @@ export const RULESETS: RulesetDef[] = [
 
 export const DEFAULT_RULESET = 'pf2e'
 
+/**
+ * Systems whose rules are indexed and can be asked about.
+ *
+ * Separate from RULESETS on purpose: having a searchable rulebook and having
+ * a character sheet are different things. D&D 5e is here without a sheet.
+ */
+export const QUESTION_RULESETS: { id: string; label: string }[] = [
+  { id: 'pf2e', label: 'Pathfinder 2e' },
+  { id: 'dnd5e', label: 'D&D 5e (SRD)' },
+]
+
 export function rulesetById(id: string): RulesetDef | undefined {
   return RULESETS.find((ruleset) => ruleset.id === id)
 }

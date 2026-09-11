@@ -22,7 +22,7 @@ _FAKE_RETRIEVED = [
 
 
 def test_ask_returns_answer_and_sources(monkeypatch) -> None:
-    monkeypatch.setattr(ask, "retrieve", lambda question, k: _FAKE_RETRIEVED)
+    monkeypatch.setattr(ask, "retrieve", lambda question, k, ruleset=None: _FAKE_RETRIEVED)
     monkeypatch.setattr(
         ask, "complete", lambda prompt, tools=None: Completion("Удар наносит урон.")
     )
@@ -42,7 +42,7 @@ def test_ask_returns_answer_and_sources(monkeypatch) -> None:
 
 
 def test_ask_returns_503_when_not_configured(monkeypatch) -> None:
-    monkeypatch.setattr(ask, "retrieve", lambda question, k: [])
+    monkeypatch.setattr(ask, "retrieve", lambda question, k, ruleset=None: [])
 
     def _raise(prompt, tools=None):
         raise LLMNotConfiguredError("LLM_API_KEY is not set")
@@ -55,7 +55,7 @@ def test_ask_returns_503_when_not_configured(monkeypatch) -> None:
 
 
 def test_ask_returns_502_on_provider_error(monkeypatch) -> None:
-    monkeypatch.setattr(ask, "retrieve", lambda question, k: [])
+    monkeypatch.setattr(ask, "retrieve", lambda question, k, ruleset=None: [])
 
     def _raise(prompt, tools=None):
         raise OpenAIError("boom")
@@ -70,7 +70,7 @@ def test_ask_returns_502_on_provider_error(monkeypatch) -> None:
 def test_ask_passes_k_through_to_retrieve(monkeypatch) -> None:
     captured = {}
 
-    def _fake_retrieve(question, k):
+    def _fake_retrieve(question, k, ruleset=None):
         captured["question"] = question
         captured["k"] = k
         return []

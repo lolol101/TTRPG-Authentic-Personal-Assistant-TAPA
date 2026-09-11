@@ -86,7 +86,9 @@ def test_stream_passes_sources_and_text_through(client, monkeypatch) -> None:
         ],
     )
 
-    response = client.post("/llm/ask/stream", json={"question": "Что делает Захват?"}, headers=headers)
+    response = client.post(
+        "/llm/ask/stream", json={"question": "Что делает Захват?"}, headers=headers
+    )
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")

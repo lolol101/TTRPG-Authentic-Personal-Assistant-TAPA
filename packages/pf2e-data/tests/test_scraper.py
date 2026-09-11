@@ -61,9 +61,33 @@ def test_fetch_all_returns_pages_for_every_url(scraper, monkeypatch) -> None:
 
     monkeypatch.setattr(httpx.Client, "get", _fake_client_get)
 
-    pages = scraper.fetch_all(["https://pf2.ru/actions/strike", "https://pf2.ru/actions/grapple"])
+    pages = list(
+        scraper.fetch_all(["https://pf2.ru/actions/strike", "https://pf2.ru/actions/grapple"])
+    )
 
     assert [p.url for p in pages] == [
         "https://pf2.ru/actions/strike",
         "https://pf2.ru/actions/grapple",
     ]
+
+
+def test_a_dead_link_does_not_take_the_rest_of_the_section_with_it(scraper, monkeypatch) -> None:
+    """pf2.ru's sitemap lists URLs that now answer 500; hundreds of good
+    pages sit behind them."""
+
+    def _fake_get(self, url, headers=None, timeout=None):
+        if "broken" in url:
+            response = httpx.Response(500, request=httpx.Request("GET", url))
+            raise httpx.HTTPStatusError("boom", request=response.request, response=response)
+        return httpx.Response(200, text=f"<html>{url}</html>", request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx.Client, "get", _fake_get)
+
+    pages = list(
+        scraper.fetch_all(
+            ["https://pf2.ru/a/one", "https://pf2.ru/a/broken", "https://pf2.ru/a/two"]
+        )
+    )
+
+    assert [page.url for page in pages] == ["https://pf2.ru/a/one", "https://pf2.ru/a/two"]
+    assert scraper.unreachable == ["https://pf2.ru/a/broken"]

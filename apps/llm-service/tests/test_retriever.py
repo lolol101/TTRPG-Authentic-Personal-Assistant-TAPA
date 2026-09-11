@@ -16,7 +16,7 @@ def test_retrieve_embeds_question_and_queries_store(monkeypatch) -> None:
 
     captured = {}
 
-    def _fake_query(embedding, k):
+    def _fake_query(embedding, k, ruleset=None):
         captured["embedding"] = embedding
         captured["k"] = k
         return [{"id": "x", "text": "t", "metadata": {"title": "T"}, "distance": 0.0}]
@@ -37,7 +37,7 @@ def test_retrieve_defaults_k_from_settings(monkeypatch) -> None:
 
     captured_k = {}
 
-    def _fake_query(embedding, k):
+    def _fake_query(embedding, k, ruleset=None):
         captured_k["k"] = k
         return []
 
@@ -46,3 +46,19 @@ def test_retrieve_defaults_k_from_settings(monkeypatch) -> None:
     retriever.retrieve("вопрос", k=None)
 
     assert captured_k["k"] == 7
+
+
+def test_retrieve_scopes_the_search_to_one_ruleset(monkeypatch) -> None:
+    """Without this, a D&D question could be answered out of the PF2e books."""
+    captured = {}
+
+    def _fake_query(embedding, k, ruleset=None):
+        captured["ruleset"] = ruleset
+        return []
+
+    monkeypatch.setattr(retriever, "vector_query", _fake_query)
+    monkeypatch.setattr(retriever, "get_embedding_provider", _FakeProvider)
+
+    retriever.retrieve("вопрос", 3, ruleset="dnd5e")
+
+    assert captured["ruleset"] == "dnd5e"

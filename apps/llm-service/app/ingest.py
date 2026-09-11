@@ -27,6 +27,9 @@ def to_metadata(record: dict[str, Any]) -> dict[str, Any]:
         "source_book": record.get("source_book") or "",
         "traits": ", ".join(record.get("traits") or []),
         "language": record.get("language", "ru"),
+        # Which game system this rule belongs to. Retrieval filters on it so
+        # a D&D question never answers out of the Pathfinder books.
+        "ruleset": record.get("ruleset") or "pf2e",
     }
 
 

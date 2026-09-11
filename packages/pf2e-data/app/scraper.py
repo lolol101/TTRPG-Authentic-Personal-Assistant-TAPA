@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import time
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -9,6 +11,14 @@ import httpx
 
 from app.core.config import settings
 from app.models import RawPage
+
+_log = logging.getLogger(__name__)
+
+
+def _describe(exc: Exception) -> str:
+    """Status-code failures print their whole help URL; keep the log readable."""
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    return f"HTTP {status}" if status else f"{type(exc).__name__}: {exc}"
 
 
 class Scraper:
@@ -26,6 +36,7 @@ class Scraper:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.rate_limit_seconds = rate_limit_seconds or settings.rate_limit_seconds
         self.user_agent = user_agent or settings.user_agent
+        self._unreachable: list[str] = []
 
     def fetch(self, url: str, client: httpx.Client) -> RawPage:
         cached = self._read_cache(url)
@@ -39,12 +50,27 @@ class Scraper:
         time.sleep(self.rate_limit_seconds)
         return page
 
-    def fetch_all(self, urls: list[str]) -> list[RawPage]:
-        pages = []
+    def fetch_all(self, urls: list[str]) -> Iterator[RawPage]:
+        """Yields pages as they arrive, skipping the ones that cannot be had.
+
+        Two reasons not to collect first and not to stop on failure: a full
+        section runs to thousands of pages of a few hundred KB each, so
+        holding them all would cost about a gigabyte before parsing starts;
+        and the sitemap lists URLs that now answer 404 or 500, so one dead
+        link must not throw away the several hundred pages behind it.
+        """
         with httpx.Client() as client:
             for url in urls:
-                pages.append(self.fetch(url, client))
-        return pages
+                try:
+                    yield self.fetch(url, client)
+                except httpx.HTTPError as exc:
+                    _log.warning("Skipping %s: %s", url, _describe(exc))
+                    self._unreachable.append(url)
+
+    @property
+    def unreachable(self) -> list[str]:
+        """URLs that failed this run — worth reporting, not worth crashing on."""
+        return list(self._unreachable)
 
     def _cache_path(self, url: str) -> Path:
         digest = hashlib.sha256(url.encode("utf-8")).hexdigest()
