@@ -5,6 +5,7 @@ from app.rulesets.pf2e.edits import (
     ChangeRejected,
     ProposedChange,
     build_update_payload,
+    normalize_path,
     resolve_change,
     resolve_changes,
 )
@@ -151,3 +152,35 @@ def test_payload_creates_missing_nesting() -> None:
     payload = build_update_payload(character, resolved)
 
     assert payload["sheet_data"]["stats"]["athletics"]["rank"] == "trained"
+
+
+def test_accepts_a_typed_column_that_the_model_prefixed_with_sheet_data() -> None:
+    """Observed live: a small model answered "heal 20" with sheet_data.hp_max."""
+    character = _character(hp_current=60, hp_max=73)
+
+    resolved, rejected = resolve_changes(
+        character,
+        [
+            ProposedChange(path="sheet_data.hp_current", value=80),
+            ProposedChange(path="sheet_data.hp_max", value=93),
+        ],
+    )
+
+    assert rejected == []
+    assert [(change.path, change.value) for change in resolved] == [
+        ("hp_current", 80),
+        ("hp_max", 93),
+    ]
+
+
+def test_prefix_shortcut_does_not_open_paths_that_are_not_columns() -> None:
+    _, rejected = resolve_changes(
+        _character(), [ProposedChange(path="sheet_data.owner_id", value=2)]
+    )
+
+    assert len(rejected) == 1
+
+
+def test_normalize_path_leaves_real_sheet_paths_alone() -> None:
+    assert normalize_path("sheet_data.conditions.prone") == "sheet_data.conditions.prone"
+    assert normalize_path("hp_current") == "hp_current"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -126,3 +127,93 @@ def complete(message: str, tools: list[dict[str, Any]] | None = None) -> Complet
 def get_completion(message: str) -> str:
     """Send a single user message to the configured LLM and return its reply."""
     return complete(message).text
+
+
+def _accumulate_tool_calls(store: dict[int, dict[str, str]], deltas: Any) -> None:
+    """Reassembles tool calls, which arrive split across chunks like text does."""
+    for delta in deltas or []:
+        slot = store.setdefault(delta.index, {"name": "", "arguments": ""})
+        function = getattr(delta, "function", None)
+        if function is None:
+            continue
+        if getattr(function, "name", None):
+            slot["name"] = function.name
+        if getattr(function, "arguments", None):
+            slot["arguments"] += function.arguments
+
+
+def _stream_once(
+    config: ProviderConfig, message: str, tools: list[dict[str, Any]] | None
+) -> Iterator[str | Completion]:
+    """Yields text pieces, then one Completion carrying the assembled result."""
+    request: dict[str, Any] = {
+        "model": config.model,
+        "messages": [{"role": "user", "content": message}],
+        "stream": True,
+    }
+    if tools:
+        request["tools"] = tools
+
+    text_parts: list[str] = []
+    calls: dict[int, dict[str, str]] = {}
+
+    for chunk in _client_for(config).chat.completions.create(**request):
+        if not chunk.choices:
+            continue
+        delta = chunk.choices[0].delta
+        piece = getattr(delta, "content", None)
+        if piece:
+            text_parts.append(piece)
+            yield piece
+        _accumulate_tool_calls(calls, getattr(delta, "tool_calls", None))
+
+    changes: list[dict[str, Any]] = []
+    for call in calls.values():
+        if call["name"] == PROPOSE_SHEET_CHANGE:
+            changes.extend(parse_change_arguments(call["arguments"]))
+
+    yield Completion(
+        text="".join(text_parts), proposed_changes=changes, provider=config.label
+    )
+
+
+def stream(
+    message: str, tools: list[dict[str, Any]] | None = None
+) -> Iterator[str | Completion]:
+    """Streaming twin of complete(), with the same provider fallback.
+
+    Failover only applies before the first token: once text has reached the
+    caller, switching providers mid-answer would splice two different replies
+    together, which reads worse than an honest error.
+    """
+    chain = [config for config in providers() if config.api_key]
+    if not chain:
+        raise LLMNotConfiguredError(
+            "LLM_API_KEY is not set — add it to .env (see .env.example)."
+        )
+
+    last_error: Exception | None = None
+    for index, config in enumerate(chain):
+        started = False
+        try:
+            for item in _stream_once(config, message, tools):
+                started = True
+                yield item
+        except _FAILOVER_ERRORS as exc:
+            if started:
+                raise
+            last_error = exc
+            remaining = len(chain) - index - 1
+            _log.warning(
+                "provider %r unavailable (%s); %s",
+                config.label,
+                type(exc).__name__,
+                f"falling back, {remaining} left" if remaining else "no fallback left",
+            )
+            continue
+
+        if index > 0:
+            _log.info("answered by fallback provider %r", config.label)
+        return
+
+    raise last_error if last_error else LLMNotConfiguredError("no LLM provider available")

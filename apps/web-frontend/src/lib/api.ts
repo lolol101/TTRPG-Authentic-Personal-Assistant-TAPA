@@ -74,19 +74,20 @@ async function request<T>(path: string, token: string | null, init?: RequestInit
     },
   })
 
-  if (!response.ok) {
-    let detail = response.statusText
-    try {
-      const body = await response.json()
-      if (typeof body.detail === 'string') detail = body.detail
-    } catch {
-      // keep statusText
-    }
-    throw new ApiError(detail)
-  }
+  if (!response.ok) throw new ApiError(await parseErrorDetail(response))
 
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
+}
+
+async function parseErrorDetail(response: Response): Promise<string> {
+  try {
+    const body = await response.json()
+    if (typeof body.detail === 'string') return body.detail
+  } catch {
+    // fall through to the status line
+  }
+  return response.statusText
 }
 
 /**
@@ -122,6 +123,83 @@ export function buildPatchFromChanges(
   return patch as CharacterUpdate
 }
 
+export interface AskStreamHandlers {
+  onSources?: (sources: AskSource[]) => void
+  onDelta?: (text: string) => void
+  onDone?: (result: { proposed_changes: ProposedChange[]; rejected_changes: string[] }) => void
+}
+
+/**
+ * Reads the answer as it is produced.
+ *
+ * The server frames this as server-sent events, but EventSource cannot send
+ * an Authorization header or a POST body, so the stream is read off fetch by
+ * hand. Frames are separated by a blank line and can be split across network
+ * chunks, hence the carried-over buffer.
+ */
+async function streamAsk(
+  token: string,
+  question: string,
+  characterId: number | undefined,
+  handlers: AskStreamHandlers,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch('/llm/ask/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ question, character_id: characterId ?? null }),
+    signal,
+  })
+
+  if (!response.ok || !response.body) {
+    throw new ApiError(await parseErrorDetail(response))
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+
+    let split = buffer.indexOf('\n\n')
+    while (split !== -1) {
+      handleFrame(buffer.slice(0, split), handlers)
+      buffer = buffer.slice(split + 2)
+      split = buffer.indexOf('\n\n')
+    }
+  }
+
+  if (buffer.trim()) handleFrame(buffer, handlers)
+}
+
+function handleFrame(frame: string, handlers: AskStreamHandlers): void {
+  let name = ''
+  const dataLines: string[] = []
+  for (const line of frame.split('\n')) {
+    if (line.startsWith('event:')) name = line.slice('event:'.length).trim()
+    else if (line.startsWith('data:')) dataLines.push(line.slice('data:'.length).trimStart())
+  }
+  if (!name || !dataLines.length) return
+
+  let data: unknown
+  try {
+    data = JSON.parse(dataLines.join('\n'))
+  } catch {
+    return
+  }
+
+  if (name === 'sources') handlers.onSources?.(data as AskSource[])
+  else if (name === 'delta') handlers.onDelta?.((data as { text: string }).text)
+  else if (name === 'done')
+    handlers.onDone?.(
+      data as { proposed_changes: ProposedChange[]; rejected_changes: string[] },
+    )
+  else if (name === 'error') throw new ApiError((data as { detail: string }).detail)
+}
+
 export const api = {
   register: (email: string, password: string) =>
     request<UserResponse>('/auth/register', null, {
@@ -142,6 +220,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ question, character_id: characterId ?? null }),
     }),
+
+  askStream: streamAsk,
 
   listCharacters: (token: string) => request<Character[]>('/characters', token),
 

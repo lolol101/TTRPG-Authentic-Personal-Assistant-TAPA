@@ -2,18 +2,40 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Iterator
 
 from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import StreamingResponse
 from openai import OpenAIError
 
-from app.core.llm_provider import LLMNotConfiguredError, complete
+from app.core.llm_provider import Completion, LLMNotConfiguredError, complete, stream
 from app.core.prompts import build_ask_prompt
 from app.core.retriever import retrieve
+from app.core.sse import event
 from app.core.tools import SHEET_CHANGE_TOOL
 from app.schemas.ask import AskRequest, AskResponse, ProposedChange, Source
 
 router = APIRouter(tags=["ask"])
 _log = logging.getLogger(__name__)
+
+
+def _sources_of(retrieved: list[dict]) -> list[Source]:
+    return [
+        Source(
+            title=r["metadata"]["title"],
+            url=r["metadata"]["url"],
+            source_book=r["metadata"].get("source_book", ""),
+        )
+        for r in retrieved
+    ]
+
+
+def _tools_for(payload: AskRequest) -> list[dict] | None:
+    # The tool is only offered when a sheet is actually in play; without one
+    # there is nothing for the model to propose changes against.
+    if payload.allow_sheet_edits and payload.character_context:
+        return [SHEET_CHANGE_TOOL]
+    return None
 
 
 @router.post("/ask", response_model=AskResponse)
@@ -27,9 +49,7 @@ def ask(payload: AskRequest) -> AskResponse:
         allow_sheet_edits=payload.allow_sheet_edits,
     )
 
-    # The tool is only offered when a sheet is actually in play; without one
-    # there is nothing for the model to propose changes against.
-    tools = [SHEET_CHANGE_TOOL] if payload.allow_sheet_edits and payload.character_context else None
+    tools = _tools_for(payload)
 
     try:
         completion = complete(prompt, tools=tools)
@@ -56,16 +76,75 @@ def ask(payload: AskRequest) -> AskResponse:
         elapsed_ms,
     )
 
-    sources = [
-        Source(
-            title=r["metadata"]["title"],
-            url=r["metadata"]["url"],
-            source_book=r["metadata"].get("source_book", ""),
-        )
-        for r in retrieved
-    ]
     return AskResponse(
         answer=completion.text,
-        sources=sources,
+        sources=_sources_of(retrieved),
         proposed_changes=[ProposedChange(**change) for change in completion.proposed_changes],
+    )
+
+
+@router.post("/ask/stream")
+def ask_stream(payload: AskRequest) -> StreamingResponse:
+    """Same answer as /ask, delivered as it is produced.
+
+    Retrieval finishes long before the model does, so sources go out first:
+    the reader gets something real within a moment instead of watching a
+    spinner for the whole generation.
+    """
+    started_at = time.monotonic()
+    retrieved = retrieve(payload.question, payload.k)
+    prompt = build_ask_prompt(
+        payload.question,
+        retrieved,
+        payload.character_context,
+        allow_sheet_edits=payload.allow_sheet_edits,
+    )
+    tools = _tools_for(payload)
+
+    def events() -> Iterator[str]:
+        yield event("sources", [source.model_dump() for source in _sources_of(retrieved)])
+
+        completion: Completion | None = None
+        try:
+            for item in stream(prompt, tools=tools):
+                if isinstance(item, Completion):
+                    completion = item
+                else:
+                    yield event("delta", {"text": item})
+        except LLMNotConfiguredError as exc:
+            yield event("error", {"detail": str(exc), "status": 503})
+            return
+        except OpenAIError as exc:
+            # The stream has already begun, so the HTTP status is long since
+            # sent — the failure has to travel as an event instead.
+            yield event("error", {"detail": f"LLM provider error: {exc}", "status": 502})
+            return
+
+        elapsed_ms = (time.monotonic() - started_at) * 1000
+        _log.info(
+            "ask/stream: question=%r k=%s with_character=%s tools=%s proposals=%s "
+            "sources=%s elapsed_ms=%.0f",
+            payload.question,
+            payload.k,
+            payload.character_context is not None,
+            bool(tools),
+            len(completion.proposed_changes) if completion else 0,
+            [r["metadata"]["title"] for r in retrieved],
+            elapsed_ms,
+        )
+
+        yield event(
+            "done",
+            {
+                "proposed_changes": completion.proposed_changes if completion else [],
+                "provider": completion.provider if completion else "",
+            },
+        )
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        # Without this an intermediate proxy may buffer the whole response and
+        # deliver it at once, which defeats the point.
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
