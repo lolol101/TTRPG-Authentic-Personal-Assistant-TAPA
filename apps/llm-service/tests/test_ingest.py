@@ -71,3 +71,39 @@ def test_load_records_skips_blank_lines(tmp_path) -> None:
     records = ingest.load_records(path)
 
     assert [r["id"] for r in records] == ["a", "b"]
+
+
+def test_a_chunk_offered_twice_is_indexed_once(monkeypatch) -> None:
+    """Chroma refuses a batch holding the same id twice, which failed the
+    whole run. The crawl that produced those files is no longer repeatable,
+    so the duplicates have to be tolerated here."""
+    calls = []
+    monkeypatch.setattr(ingest, "upsert", lambda **kwargs: calls.append(kwargs))
+
+    records = [
+        {"id": "a", "url": "u", "title": "t", "category": "actions", "text": "раз"},
+        {"id": "b", "url": "u", "title": "t", "category": "actions", "text": "два"},
+        {"id": "a", "url": "u", "title": "t", "category": "actions", "text": "раз"},
+    ]
+
+    total = ingest.ingest_records(records, _FakeProvider())
+
+    assert total == 2
+    assert calls[0]["ids"] == ["a", "b"]
+
+
+def test_deduplication_does_not_split_a_full_batch(monkeypatch) -> None:
+    """Dropping repeats after slicing would leave batches short of the size
+    that was measured as safe for the embedding backend."""
+    calls = []
+    monkeypatch.setattr(ingest, "upsert", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(ingest, "_BATCH_SIZE", 2)
+
+    records = [
+        {"id": i, "url": "u", "title": "t", "category": "actions", "text": "x"}
+        for i in ["a", "a", "b", "c"]
+    ]
+
+    ingest.ingest_records(records, _FakeProvider())
+
+    assert [call["ids"] for call in calls] == [["a", "b"], ["c"]]
