@@ -65,6 +65,13 @@ export interface ChatMessage {
 
 export type ChatUpdate = Partial<Pick<Chat, 'title' | 'ruleset' | 'character_id'>>
 
+/** A saved copy of a sheet the player can come back to. */
+export interface Snapshot {
+  id: number
+  name: string
+  created_at: string
+}
+
 /**
  * Ruleset-specific half of the sheet. Its shape is owned by the ruleset
  * module (see src/rulesets/<ruleset>/types.ts) — every game system has its
@@ -276,6 +283,8 @@ export const api = {
 
   listCharacters: (token: string) => request<Character[]>('/characters', token),
 
+  getCharacter: (token: string, id: number) => request<Character>(`/characters/${id}`, token),
+
   createCharacter: (token: string, payload: CharacterCreate) =>
     request<Character>('/characters', token, {
       method: 'POST',
@@ -290,6 +299,26 @@ export const api = {
 
   deleteCharacter: (token: string, id: number) =>
     request<void>(`/characters/${id}`, token, { method: 'DELETE' }),
+
+  listSnapshots: (token: string, characterId: number) =>
+    request<Snapshot[]>(`/characters/${characterId}/snapshots`, token),
+
+  createSnapshot: (token: string, characterId: number, name: string) =>
+    request<Snapshot>(`/characters/${characterId}/snapshots`, token, {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+
+  restoreSnapshot: (token: string, characterId: number, snapshotId: number) =>
+    request<Snapshot>(`/characters/${characterId}/snapshots/${snapshotId}/restore`, token, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  deleteSnapshot: (token: string, characterId: number, snapshotId: number) =>
+    request<void>(`/characters/${characterId}/snapshots/${snapshotId}`, token, {
+      method: 'DELETE',
+    }),
 
   listChats: (token: string) => request<Chat[]>('/chats', token),
 
