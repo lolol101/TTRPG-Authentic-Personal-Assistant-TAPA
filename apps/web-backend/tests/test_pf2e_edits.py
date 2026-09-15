@@ -184,3 +184,94 @@ def test_prefix_shortcut_does_not_open_paths_that_are_not_columns() -> None:
 def test_normalize_path_leaves_real_sheet_paths_alone() -> None:
     assert normalize_path("sheet_data.conditions.prone") == "sheet_data.conditions.prone"
     assert normalize_path("hp_current") == "hp_current"
+
+
+def _hurt(**overrides) -> Character:
+    """A character on a round 40 hit points, so the arithmetic below reads."""
+    return _character(hp_max=40, hp_current=40, **overrides)
+
+
+def test_a_change_without_workings_is_applied_but_marked_unverified() -> None:
+    """A weak model that omits them must not be a brick wall: the player still
+    gets the suggestion, just without the arithmetic vouched for."""
+    resolved, rejected = resolve_changes(_hurt(), [ProposedChange(path="hp_current", value=28)])
+
+    assert rejected == []
+    assert resolved[0].value == 28
+    assert resolved[0].verified is False
+
+
+def test_workings_that_add_up_mark_the_change_verified() -> None:
+    resolved, rejected = resolve_changes(
+        _hurt(), [ProposedChange(path="hp_current", value=28, basis=40, delta=-12)]
+    )
+
+    assert rejected == []
+    assert resolved[0].verified is True
+
+
+def test_a_basis_the_sheet_disagrees_with_is_refused() -> None:
+    """Catches the model inventing the current state instead of reading it."""
+    resolved, rejected = resolve_changes(
+        _hurt(), [ProposedChange(path="hp_current", value=18, basis=30, delta=-12)]
+    )
+
+    assert resolved == []
+    assert "30" in rejected[0] and "40" in rejected[0]
+
+
+def test_arithmetic_that_does_not_add_up_is_refused() -> None:
+    """40 - 12 is 28; a model that writes 25 passes every range check."""
+    resolved, rejected = resolve_changes(
+        _hurt(), [ProposedChange(path="hp_current", value=25, basis=40, delta=-12)]
+    )
+
+    assert resolved == []
+    assert "28" in rejected[0]
+
+
+def test_a_basis_alone_is_still_checked_against_the_sheet() -> None:
+    resolved, rejected = resolve_changes(
+        _hurt(), [ProposedChange(path="hp_current", value=28, basis=7)]
+    )
+
+    assert resolved == []
+    assert rejected
+
+
+def test_workings_are_checked_inside_the_sheet_document_too() -> None:
+    character = _hurt()
+    character.sheet_data = {"hero_points": 2}
+
+    resolved, rejected = resolve_changes(
+        character, [ProposedChange(path="sheet_data.hero_points", value=1, basis=2, delta=-1)]
+    )
+
+    assert rejected == []
+    assert resolved[0].verified is True
+
+
+def test_a_rank_change_needs_no_arithmetic() -> None:
+    """Ranks are words, so there is nothing to add up and nothing to demand."""
+    character = _hurt()
+    character.sheet_data = {"stats": {"athletics": {"rank": "trained"}}}
+
+    resolved, rejected = resolve_changes(
+        character, [ProposedChange(path="sheet_data.stats.athletics.rank", value="expert")]
+    )
+
+    assert rejected == []
+    assert resolved[0].value == "expert"
+
+
+def test_one_unverifiable_change_does_not_sink_the_others() -> None:
+    resolved, rejected = resolve_changes(
+        _hurt(),
+        [
+            ProposedChange(path="hp_current", value=25, basis=40, delta=-12),
+            ProposedChange(path="ac", value=18),
+        ],
+    )
+
+    assert [change.path for change in resolved] == ["ac"]
+    assert len(rejected) == 1

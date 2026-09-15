@@ -74,6 +74,14 @@ function App() {
     setOpenCharacter((current) => (current?.id === updated.id ? updated : current))
   }
 
+  /** Re-reads one character from the server, after a version was restored. */
+  async function handleReload() {
+    if (!token || !openCharacter) return
+    const fresh = await api.getCharacter(token, openCharacter.id)
+    setCharacters((current) => current.map((c) => (c.id === fresh.id ? fresh : c)))
+    setOpenCharacter(fresh)
+  }
+
   async function handleDelete() {
     if (!token || !openCharacter) return
     await api.deleteCharacter(token, openCharacter.id)
@@ -112,9 +120,11 @@ function App() {
               <Sheet
                 key={openCharacter.id}
                 character={openCharacter}
+                token={token}
                 onSave={handleSave}
                 onDelete={handleDelete}
                 onBack={() => setOpenCharacter(null)}
+                onReload={handleReload}
               />
             ) : (
               <div className="space-y-3">

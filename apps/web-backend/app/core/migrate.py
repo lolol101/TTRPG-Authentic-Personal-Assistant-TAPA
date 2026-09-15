@@ -19,6 +19,7 @@ from sqlmodel import SQLModel
 # owns has to be named here — test_migrate.py checks that from a clean import.
 from app.models.character import Character  # noqa: F401
 from app.models.chat import Chat, ChatMessage  # noqa: F401
+from app.models.snapshot import CharacterSnapshot  # noqa: F401
 from app.models.user import User  # noqa: F401
 
 _log = logging.getLogger(__name__)

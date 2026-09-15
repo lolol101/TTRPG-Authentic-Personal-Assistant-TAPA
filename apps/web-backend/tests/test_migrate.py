@@ -9,6 +9,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from app.core.migrate import TargetNotEmptyError, copy_database
 from app.models.character import Character
 from app.models.chat import Chat, ChatMessage
+from app.models.snapshot import CharacterSnapshot
 from app.models.user import User
 
 
@@ -23,6 +24,7 @@ def source_fixture(tmp_path):
         session.add(Character(id=8, owner_id=2, name="Seelah", level=3, sheet_data={"xp": 400}))
         session.add(Chat(id=3, owner_id=1, title="Про захваты", character_id=7))
         session.add(ChatMessage(id=4, chat_id=3, role="user", text="Как работает Захват?"))
+        session.add(CharacterSnapshot(id=5, character_id=7, name="до боя", data={"hp_current": 60}))
         session.commit()
     return engine
 
@@ -45,6 +47,7 @@ def test_copies_every_table(source, target) -> None:
         "character": 2,
         "chat": 1,
         "chatmessage": 1,
+        "charactersnapshot": 1,
     }
     assert _count(target, User) == 2
     assert _count(target, Character) == 2
@@ -120,4 +123,10 @@ def test_migration_sees_every_table_the_app_owns() -> None:
         [sys.executable, "-c", source], capture_output=True, text=True, check=True
     )
 
-    assert set(result.stdout.strip().split(",")) == {"user", "character", "chat", "chatmessage"}
+    assert set(result.stdout.strip().split(",")) == {
+        "user",
+        "character",
+        "chat",
+        "chatmessage",
+        "charactersnapshot",
+    }

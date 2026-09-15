@@ -4,9 +4,13 @@ import { CharacterSheet as Pf2eCharacterSheet } from '@/rulesets/pf2e/CharacterS
 
 export interface SheetProps {
   character: Character
+  /** Needed for calls the sheet makes itself, such as saved versions. */
+  token: string
   onSave: (payload: CharacterUpdate) => Promise<void>
   onDelete: () => Promise<void>
   onBack: () => void
+  /** Re-reads the character after a saved version is written back over it. */
+  onReload: () => Promise<void>
 }
 
 export interface RulesetDef {
