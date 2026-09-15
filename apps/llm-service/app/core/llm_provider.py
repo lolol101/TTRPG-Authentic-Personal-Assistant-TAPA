@@ -8,6 +8,7 @@ from typing import Any
 from openai import APIConnectionError, APITimeoutError, InternalServerError, OpenAI
 
 from app.core.config import settings
+from app.core.text_filter import TextFilter, strip_markup
 from app.core.tools import PROPOSE_SHEET_CHANGE, parse_change_arguments
 
 _log = logging.getLogger(__name__)
@@ -84,7 +85,11 @@ def _complete_once(
         if getattr(call.function, "name", None) == PROPOSE_SHEET_CHANGE:
             changes.extend(parse_change_arguments(call.function.arguments))
 
-    return Completion(text=choice.content or "", proposed_changes=changes, provider=config.label)
+    return Completion(
+        text=strip_markup(choice.content or ""),
+        proposed_changes=changes,
+        provider=config.label,
+    )
 
 
 def complete(
@@ -149,6 +154,9 @@ def _stream_once(
 
     text_parts: list[str] = []
     calls: dict[int, dict[str, str]] = {}
+    # Models occasionally write their tool-call tags into the prose. Filtered
+    # here rather than at the edge so the assembled text is clean too.
+    clean = TextFilter()
 
     for chunk in _client_for(config).chat.completions.create(**request):
         if not chunk.choices:
@@ -156,9 +164,16 @@ def _stream_once(
         delta = chunk.choices[0].delta
         piece = getattr(delta, "content", None)
         if piece:
-            text_parts.append(piece)
-            yield piece
+            ready = clean.feed(piece)
+            if ready:
+                text_parts.append(ready)
+                yield ready
         _accumulate_tool_calls(calls, getattr(delta, "tool_calls", None))
+
+    trailing = clean.flush()
+    if trailing:
+        text_parts.append(trailing)
+        yield trailing
 
     changes: list[dict[str, Any]] = []
     for call in calls.values():
