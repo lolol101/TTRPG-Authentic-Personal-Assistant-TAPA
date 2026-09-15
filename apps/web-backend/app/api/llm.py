@@ -57,6 +57,8 @@ def _check_proposals(
                 path=str(item.get("path", "")),
                 value=item.get("value"),
                 reason=str(item.get("reason") or ""),
+                basis=item.get("basis"),
+                delta=item.get("delta"),
             )
             for item in proposals
         ],
@@ -68,6 +70,7 @@ def _check_proposals(
             "reason": change.reason,
             "label": change.label,
             "before": change.before,
+            "verified": change.verified,
         }
         for change in resolved
     ], rejected

@@ -99,9 +99,7 @@ def test_no_gpu_option_is_sent_when_the_gpu_is_allowed(monkeypatch) -> None:
 
     monkeypatch.setattr(httpx, "post", _fake_post)
 
-    OllamaEmbeddingProvider("bge-m3", "http://localhost:11434", 30.0, use_gpu=True).embed(
-        ["текст"]
-    )
+    OllamaEmbeddingProvider("bge-m3", "http://localhost:11434", 30.0, use_gpu=True).embed(["текст"])
 
     assert "options" not in captured["json"]
 

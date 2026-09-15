@@ -234,6 +234,9 @@ def test_ask_returns_validated_proposals_without_applying_them(client, monkeypat
             "reason": "получил урон",
             "label": "Текущие ПЗ",
             "before": 60,
+            # Nothing vouches for the arithmetic behind 42: the proposal
+            # carried no basis or delta.
+            "verified": False,
         }
     ]
 

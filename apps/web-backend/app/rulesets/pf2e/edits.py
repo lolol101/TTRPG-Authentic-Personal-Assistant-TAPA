@@ -28,11 +28,36 @@ COLUMN_FIELDS: dict[str, tuple[str, int, int]] = {
 }
 
 _CONDITION_KEYS = {
-    "blinded", "clumsy", "concealed", "confused", "controlled", "dazzled",
-    "deafened", "doomed", "drained", "encumbered", "enfeebled", "fascinated",
-    "fatigued", "fleeing", "frightened", "grabbed", "hidden", "immobilized",
-    "invisible", "off_guard", "paralyzed", "petrified", "prone", "quickened",
-    "restrained", "sickened", "slowed", "stunned", "stupefied", "unconscious",
+    "blinded",
+    "clumsy",
+    "concealed",
+    "confused",
+    "controlled",
+    "dazzled",
+    "deafened",
+    "doomed",
+    "drained",
+    "encumbered",
+    "enfeebled",
+    "fascinated",
+    "fatigued",
+    "fleeing",
+    "frightened",
+    "grabbed",
+    "hidden",
+    "immobilized",
+    "invisible",
+    "off_guard",
+    "paralyzed",
+    "petrified",
+    "prone",
+    "quickened",
+    "restrained",
+    "sickened",
+    "slowed",
+    "stunned",
+    "stupefied",
+    "unconscious",
     "wounded",
 }
 
@@ -52,6 +77,10 @@ class ProposedChange:
     path: str
     value: Any
     reason: str = ""
+    """What the model believes the sheet currently holds, and by how much it
+    is changing that. Optional, and checked when given — see verify_workings."""
+    basis: Any = None
+    delta: Any = None
 
 
 @dataclass(frozen=True)
@@ -63,6 +92,8 @@ class ResolvedChange:
     reason: str
     label: str
     before: Any
+    """True when the model showed its arithmetic and the arithmetic held."""
+    verified: bool = False
 
 
 class ChangeRejected(ValueError):
@@ -78,17 +109,59 @@ def _as_int(value: Any, label: str) -> int:
         raise ChangeRejected(f"{label}: ожидалось число, пришло {value!r}") from exc
 
 
+def verify_workings(change: ProposedChange, before: Any, value: int, label: str) -> bool:
+    """Checks the model's own arithmetic against the sheet.
+
+    Range checks pass anything plausible: for a character on 40 hit points who
+    took 12 damage, both 28 and 25 are numbers within bounds, and only one is
+    right. So the model is asked to state what it read (`basis`) and what it
+    is applying (`delta`), and both are checked here — against the sheet, and
+    against each other.
+
+    Returns whether the change was actually vouched for. Missing workings are
+    not an error: a model too small to supply them would otherwise be unable
+    to touch the sheet at all, which is how "increase my HP" silently did
+    nothing before. The player sees the difference instead.
+    """
+    if change.basis is None and change.delta is None:
+        return False
+
+    if change.basis is not None:
+        basis = _as_int(change.basis, f"{label}: исходное значение")
+        if basis != before:
+            raise ChangeRejected(
+                f"{label}: ассистент считал от {basis}, а в листе {before} — "
+                "расчёт не по текущему состоянию"
+            )
+
+    if change.basis is not None and change.delta is not None:
+        basis = _as_int(change.basis, f"{label}: исходное значение")
+        delta = _as_int(change.delta, f"{label}: величина изменения")
+        if basis + delta != value:
+            raise ChangeRejected(
+                f"{label}: {basis} и {delta:+d} дают {basis + delta}, "
+                f"а предложено {value} — ошибка в расчёте"
+            )
+        return True
+
+    # A basis that matches is worth something on its own: it proves the model
+    # read the sheet rather than imagining it.
+    return change.basis is not None
+
+
 def _resolve_column(character: Character, change: ProposedChange) -> ResolvedChange:
     label, low, high = COLUMN_FIELDS[change.path]
     number = _as_int(change.value, label)
     if not low <= number <= high:
         raise ChangeRejected(f"{label}: {number} вне допустимого диапазона {low}…{high}")
+    before = getattr(character, change.path)
     return ResolvedChange(
         path=change.path,
         value=number,
         reason=change.reason,
         label=label,
-        before=getattr(character, change.path),
+        before=before,
+        verified=verify_workings(change, before, number, label),
     )
 
 
@@ -103,24 +176,29 @@ def _resolve_sheet(character: Character, change: ProposedChange) -> ResolvedChan
         number = _as_int(change.value, f"Состояние {key}")
         if not 0 <= number <= 4:
             raise ChangeRejected(f"Состояние {key}: значение {number} вне 0…4")
+        before = (sheet.get("conditions") or {}).get(key, 0)
+        label = f"Состояние «{key}»"
         return ResolvedChange(
             path=change.path,
             value=number,
             reason=change.reason,
-            label=f"Состояние «{key}»",
-            before=(sheet.get("conditions") or {}).get(key, 0),
+            label=label,
+            before=before,
+            verified=verify_workings(change, before, number, label),
         )
 
     if parts == ["sheet_data", "hero_points"]:
         number = _as_int(change.value, "Пункты героизма")
         if not 0 <= number <= 3:
             raise ChangeRejected(f"Пункты героизма: {number} вне 0…3")
+        before = sheet.get("hero_points", 0)
         return ResolvedChange(
             path=change.path,
             value=number,
             reason=change.reason,
             label="Пункты героизма",
-            before=sheet.get("hero_points", 0),
+            before=before,
+            verified=verify_workings(change, before, number, "Пункты героизма"),
         )
 
     if parts[:1] == ["sheet_data"] and len(parts) == 2 and parts[1] in {"dying", "wounded"}:
@@ -128,12 +206,14 @@ def _resolve_sheet(character: Character, change: ProposedChange) -> ResolvedChan
         number = _as_int(change.value, label)
         if not 0 <= number <= 4:
             raise ChangeRejected(f"{label}: {number} вне 0…4")
+        before = sheet.get(parts[1], 0)
         return ResolvedChange(
             path=change.path,
             value=number,
             reason=change.reason,
             label=label,
-            before=sheet.get(parts[1], 0),
+            before=before,
+            verified=verify_workings(change, before, number, label),
         )
 
     if parts[:2] == ["sheet_data", "stats"] and len(parts) == 4:
@@ -142,7 +222,7 @@ def _resolve_sheet(character: Character, change: ProposedChange) -> ResolvedChan
             raise ChangeRejected(f"Неизвестная характеристика: {stat}")
         if part not in _STAT_PARTS:
             raise ChangeRejected(f"У характеристики нельзя менять «{part}»")
-        current = ((sheet.get("stats") or {}).get(stat) or {})
+        current = (sheet.get("stats") or {}).get(stat) or {}
         if part == "rank":
             if change.value not in _RANKS:
                 raise ChangeRejected(f"Неизвестное умение: {change.value!r}")
@@ -153,12 +233,16 @@ def _resolve_sheet(character: Character, change: ProposedChange) -> ResolvedChan
             if not -10 <= value <= 10:
                 raise ChangeRejected(f"{stat}.{part}: {value} вне -10…10")
             before = current.get(part, 0)
+        label = f"{stat} → {part}"
+        # A rank is a word, so there is no arithmetic to vouch for.
+        checked = part != "rank" and verify_workings(change, before, value, label)
         return ResolvedChange(
             path=change.path,
             value=value,
             reason=change.reason,
-            label=f"{stat} → {part}",
+            label=label,
             before=before,
+            verified=checked,
         )
 
     raise ChangeRejected(f"Путь «{change.path}» недоступен для правки")
@@ -184,7 +268,13 @@ def normalize_path(path: str) -> str:
 def resolve_change(character: Character, change: ProposedChange) -> ResolvedChange:
     path = normalize_path(change.path)
     if path != change.path:
-        change = ProposedChange(path=path, value=change.value, reason=change.reason)
+        change = ProposedChange(
+            path=path,
+            value=change.value,
+            reason=change.reason,
+            basis=change.basis,
+            delta=change.delta,
+        )
 
     if change.path in COLUMN_FIELDS:
         return _resolve_column(character, change)

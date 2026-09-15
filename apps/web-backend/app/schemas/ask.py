@@ -29,6 +29,8 @@ class ProposedChange(BaseModel):
     """Human-readable field name and the value this would replace."""
     label: str = ""
     before: object = None
+    """Whether the assistant showed its arithmetic and the arithmetic held."""
+    verified: bool = False
 
 
 class Memory(BaseModel):
