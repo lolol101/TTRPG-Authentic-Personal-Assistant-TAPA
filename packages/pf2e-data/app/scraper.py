@@ -15,8 +15,12 @@ from app.models import RawPage
 _log = logging.getLogger(__name__)
 
 
-def _is_refusal(exc: Exception) -> bool:
-    """403 and 429 mean "not you, not now" — everything else is about the page."""
+def is_refusal(exc: Exception) -> bool:
+    """403 and 429 mean "not you, not now" — everything else is about the page.
+
+    Public so app.sitemap can classify a blocked sitemap.xml the same way —
+    the block is site-wide and hits that URL just as it hits any page.
+    """
     status = getattr(getattr(exc, "response", None), "status_code", None)
     return status in (403, 429)
 
@@ -89,7 +93,7 @@ class Scraper:
                 except httpx.HTTPError as exc:
                     _log.warning("Skipping %s: %s", url, _describe(exc))
                     self._unreachable.append(url)
-                    if _is_refusal(exc):
+                    if is_refusal(exc):
                         blocked_streak += 1
                         if blocked_streak >= _BLOCK_STREAK:
                             raise SiteBlockedError(

@@ -5,6 +5,8 @@ from xml.etree import ElementTree
 
 import httpx
 
+from app.scraper import SiteBlockedError, is_refusal
+
 _SITEMAP_NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
 
 
@@ -15,8 +17,20 @@ def parse_sitemap_urls(xml_text: str) -> list[str]:
 
 
 def fetch_sitemap_urls(sitemap_url: str, *, user_agent: str, timeout: float = 30.0) -> list[str]:
+    """Fetch and parse the sitemap — not just any URL under it, pf2.ru's block
+    can refuse sitemap.xml itself. That is the site being unavailable for
+    now, not this URL being invalid, so it is raised the same way a blocked
+    section is: as SiteBlockedError, not a bare HTTP error.
+    """
     response = httpx.get(sitemap_url, headers={"User-Agent": user_agent}, timeout=timeout)
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        if is_refusal(exc):
+            raise SiteBlockedError(
+                f"pf2.ru отказал на {sitemap_url} — похоже на блокировку."
+            ) from exc
+        raise
     return parse_sitemap_urls(response.text)
 
 
