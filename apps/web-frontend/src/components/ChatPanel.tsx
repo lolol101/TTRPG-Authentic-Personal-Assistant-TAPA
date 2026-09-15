@@ -10,6 +10,7 @@ import {
   type AskMemory,
   type AskSource,
   type Chat,
+  type Clarification,
   type Character,
   type CharacterUpdate,
   type ProposedChange,
@@ -27,6 +28,8 @@ interface Message {
   changes?: ProposedChange[]
   rejected?: string[]
   applied?: boolean
+  /** Asked instead of proposing an edit; answering it continues the turn. */
+  clarification?: Clarification
   failed?: boolean
   /** Still arriving — drives the caret and keeps the input disabled. */
   streaming?: boolean
@@ -147,8 +150,8 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
     else setDraftRuleset(id)
   }
 
-  async function send() {
-    const text = question.trim()
+  async function send(override?: string) {
+    const text = (override ?? question).trim()
     if (!text || asking) return
 
     setError('')
@@ -199,6 +202,7 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
               changes: result.proposed_changes,
               rejected: result.rejected_changes,
               serverId: result.message_id ?? undefined,
+              clarification: result.clarification ?? undefined,
               streaming: false,
             })
             if (result.memory) {
@@ -218,6 +222,13 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
     } finally {
       setAsking(false)
     }
+  }
+
+  /** Sends a chosen option straight back, so the turn continues in one click. */
+  async function answerClarification(option: string) {
+    if (asking) return
+    setQuestion(option)
+    await send(option)
   }
 
   async function applyChanges(message: Message) {
@@ -415,7 +426,31 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
                     </div>
                   )}
 
-                  {message.rejected && message.rejected.length > 0 && (
+                  {message.clarification && (
+                <div className="space-y-2 border-t pt-2">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Уточнение перед правкой
+                  </p>
+                  <p className="text-sm">{message.clarification.question}</p>
+                  {message.clarification.options.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {message.clarification.options.map((option) => (
+                        <button
+                          key={option}
+                          type="button"
+                          disabled={asking}
+                          onClick={() => void answerClarification(option)}
+                          className="rounded border px-2.5 py-1 text-xs transition-colors hover:bg-muted disabled:opacity-40"
+                        >
+                          {option}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {message.rejected && message.rejected.length > 0 && (
                     <div className="space-y-1 border-t pt-2">
                       <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                         Отклонено проверкой

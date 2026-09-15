@@ -92,3 +92,56 @@ def parse_change_arguments(raw_arguments: str) -> list[dict[str, Any]]:
         for change in changes
         if isinstance(change, dict) and change.get("path")
     ]
+
+
+ASK_CLARIFICATION = "ask_clarifying_question"
+
+CLARIFY_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": ASK_CLARIFICATION,
+        "description": (
+            "Спросить игрока, что именно он имеет в виду, ВМЕСТО того чтобы "
+            "предлагать правку листа. Вызывай только когда без ответа правка "
+            "может оказаться неверной: непонятно, какое поле менять, от какого "
+            "значения считать или сколько именно. Если всё ясно — не спрашивай, "
+            "а сразу вызывай propose_sheet_change."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": "Один короткий вопрос по существу.",
+                },
+                "options": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Готовые варианты ответа, если они очевидны — игрок "
+                        "выберет в один клик. Не обязательно."
+                    ),
+                },
+            },
+            "required": ["question"],
+        },
+    },
+}
+
+
+def parse_clarification(raw_arguments: str) -> dict[str, Any] | None:
+    """Reads a clarification call, or returns None if it says nothing useful."""
+    try:
+        parsed = json.loads(raw_arguments)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+
+    question = str(parsed.get("question") or "").strip()
+    if not question:
+        return None
+
+    raw_options = parsed.get("options")
+    options = [str(option) for option in raw_options] if isinstance(raw_options, list) else []
+    return {"question": question, "options": options[:5]}

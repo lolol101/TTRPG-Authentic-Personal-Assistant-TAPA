@@ -14,8 +14,15 @@ from app.core.llm_provider import Completion, LLMNotConfiguredError, complete, s
 from app.core.prompts import build_ask_messages
 from app.core.retriever import retrieve
 from app.core.sse import event
-from app.core.tools import SHEET_CHANGE_TOOL
-from app.schemas.ask import AskRequest, AskResponse, Memory, ProposedChange, Source
+from app.core.tools import CLARIFY_TOOL, SHEET_CHANGE_TOOL
+from app.schemas.ask import (
+    AskRequest,
+    AskResponse,
+    Clarification,
+    Memory,
+    ProposedChange,
+    Source,
+)
 
 router = APIRouter(tags=["ask"])
 _log = logging.getLogger(__name__)
@@ -36,7 +43,10 @@ def _tools_for(payload: AskRequest) -> list[dict] | None:
     # The tool is only offered when a sheet is actually in play; without one
     # there is nothing for the model to propose changes against.
     if payload.allow_sheet_edits and payload.character_context:
-        return [SHEET_CHANGE_TOOL]
+        # Asking is offered alongside proposing, and only here: a rules
+        # question the model half-understands is cheap to correct, a sheet
+        # edited on a guess is not.
+        return [SHEET_CHANGE_TOOL, CLARIFY_TOOL]
     return None
 
 
@@ -110,6 +120,9 @@ def ask(payload: AskRequest) -> AskResponse:
         sources=_sources_of(retrieved),
         proposed_changes=[ProposedChange(**change) for change in completion.proposed_changes],
         memory=_memory_of(fitted),
+        clarification=(
+            Clarification(**completion.clarification) if completion.clarification else None
+        ),
     )
 
 
@@ -165,6 +178,7 @@ def ask_stream(payload: AskRequest) -> StreamingResponse:
                 "proposed_changes": completion.proposed_changes if completion else [],
                 "provider": completion.provider if completion else "",
                 "memory": _memory_of(fitted).model_dump(),
+                "clarification": completion.clarification if completion else None,
             },
         )
 
