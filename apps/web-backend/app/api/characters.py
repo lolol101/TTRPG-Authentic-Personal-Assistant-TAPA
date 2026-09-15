@@ -5,6 +5,7 @@ from app.api.deps import get_current_user
 from app.core.db import get_session
 from app.models.character import Character
 from app.models.chat import Chat
+from app.models.snapshot import CharacterSnapshot
 from app.models.user import User
 from app.schemas.character import CharacterCreate, CharacterResponse, CharacterUpdate
 
@@ -78,6 +79,13 @@ def delete_character(
     for chat in session.exec(select(Chat).where(Chat.character_id == character.id)):
         chat.character_id = None
         session.add(chat)
+
+    # Saved copies go with it: they are copies of this sheet and of nothing
+    # else, and Postgres would refuse the delete while they still point here.
+    for snapshot in session.exec(
+        select(CharacterSnapshot).where(CharacterSnapshot.character_id == character.id)
+    ):
+        session.delete(snapshot)
 
     session.delete(character)
     session.commit()

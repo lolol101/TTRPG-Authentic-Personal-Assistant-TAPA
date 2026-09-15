@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { SheetVersions } from '@/components/SheetVersions'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { Character, CharacterUpdate } from '@/lib/api'
 import { computeMaxHp, EMPTY_COMPONENTS, type AbilityKey, type StatComponents } from '@/rulesets/pf2e/domain'
@@ -12,9 +13,12 @@ import type { Pf2eSheetData } from '@/rulesets/pf2e/types'
 
 interface Props {
   character: Character
+  token: string
   onSave: (payload: CharacterUpdate) => Promise<void>
   onDelete: () => Promise<void>
   onBack: () => void
+  /** Reloads the character after a saved version is written back over it. */
+  onReload: () => Promise<void>
 }
 
 const DEFAULT_HP = { ancestry: 0, per_level: 0, item: 0, other: 0, penalty: 0, temporary: 0 }
@@ -29,7 +33,7 @@ function initialSheetData(character: Character): Pf2eSheetData {
   return { ...data, hp: { ...DEFAULT_HP, other: character.hp_max } }
 }
 
-export function CharacterSheet({ character, onSave, onDelete, onBack }: Props) {
+export function CharacterSheet({ character, token, onSave, onDelete, onBack, onReload }: Props) {
   const [draft, setDraft] = useState<Character>({
     ...character,
     sheet_data: initialSheetData(character),
@@ -93,6 +97,7 @@ export function CharacterSheet({ character, onSave, onDelete, onBack }: Props) {
             ← К списку
           </Button>
           <div className="ml-auto flex gap-2">
+            <SheetVersions token={token} characterId={character.id} onRestored={onReload} />
             <Button variant="destructive" onClick={onDelete}>
               Удалить
             </Button>

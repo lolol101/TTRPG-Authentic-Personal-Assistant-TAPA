@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     max_chats_per_user: int = 50
     max_messages_per_chat: int = 500
     max_message_chars: int = 4000
+    max_snapshots_per_character: int = 20
 
     llm_service_url: str = "http://localhost:8100"
     # A local 14B on the GPU thinks longer than a hosted model did.
