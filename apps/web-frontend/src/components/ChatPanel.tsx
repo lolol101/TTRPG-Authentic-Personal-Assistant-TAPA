@@ -84,6 +84,8 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
   const [draftRuleset, setDraftRuleset] = useState<string>(DEFAULT_RULESET)
 
   const endRef = useRef<HTMLDivElement>(null)
+  /** Which chat the messages in state belong to, so they are not re-fetched. */
+  const loadedFor = useRef<number | null>(null)
 
   const activeChat = chats.find((chat) => chat.id === activeId) ?? null
   const characterId = activeChat ? activeChat.character_id : draftCharacterId
@@ -105,15 +107,35 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
   useEffect(() => {
     if (activeId === null) {
       setMessages([])
+      loadedFor.current = null
       return
     }
+    // Already holding this chat's messages. Re-fetching would race the turn
+    // being typed into a chat created a moment ago: the server has none yet,
+    // and the empty answer would land last and wipe the question off screen.
+    if (loadedFor.current === activeId) return
+
     // The mark belongs to the chat that produced it; carrying it across would
     // draw the line in an arbitrary place.
     setMemory(null)
+
+    let cancelled = false
     void api
       .listMessages(token, activeId)
-      .then((stored) => setMessages(stored.map(toMessage)))
-      .catch(() => setError('Не удалось загрузить сообщения'))
+      .then((stored) => {
+        if (cancelled) return
+        setMessages(stored.map(toMessage))
+        loadedFor.current = activeId
+      })
+      .catch(() => {
+        if (!cancelled) setError('Не удалось загрузить сообщения')
+      })
+
+    // Switching chats faster than the network answers would otherwise show
+    // the previous chat's messages under the current chat's name.
+    return () => {
+      cancelled = true
+    }
   }, [token, activeId])
 
   useEffect(() => {
@@ -126,6 +148,9 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
       ruleset: draftRuleset,
     })
     setChats((current) => [chat, ...current])
+    // Marked before the id changes: a chat created here is empty by
+    // definition, so the effect must not go asking the server about it.
+    loadedFor.current = chat.id
     setActiveId(chat.id)
     setMessages([])
     return chat
