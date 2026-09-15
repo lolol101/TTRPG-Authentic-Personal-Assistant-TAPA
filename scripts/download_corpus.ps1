@@ -26,7 +26,7 @@
     .\scripts\download_corpus.ps1
 
 .EXAMPLE
-    .\scripts\download_corpus.ps1 -Sections feats -Attempts 3
+    powershell -ExecutionPolicy Bypass -File .\scripts\download_corpus.ps1 -Sections feats,equipment
 #>
 
 [CmdletBinding()]
@@ -39,6 +39,11 @@ param(
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $env:PYTHONIOENCODING = 'utf-8'
+
+# Запуск через -File не разбивает массив по запятым: «-Sections a,b,c»
+# приходит одной строкой, и краулер видит раздел с именем «a,b,c».
+# Разбираем сами, чтобы скрипт вёл себя одинаково при любом вызове.
+$Sections = $Sections | ForEach-Object { $_ -split ',' } | Where-Object { $_ } | ForEach-Object { $_.Trim() }
 
 $packageDir = Join-Path (Split-Path $PSScriptRoot -Parent) 'packages\pf2e-data'
 if (-not (Test-Path $packageDir)) {
