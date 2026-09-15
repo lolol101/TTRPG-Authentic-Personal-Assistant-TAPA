@@ -15,10 +15,25 @@ from app.models import RawPage
 _log = logging.getLogger(__name__)
 
 
+def _is_refusal(exc: Exception) -> bool:
+    """403 and 429 mean "not you, not now" — everything else is about the page."""
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    return status in (403, 429)
+
+
 def _describe(exc: Exception) -> str:
     """Status-code failures print their whole help URL; keep the log readable."""
     status = getattr(getattr(exc, "response", None), "status_code", None)
     return f"HTTP {status}" if status else f"{type(exc).__name__}: {exc}"
+
+
+#: Consecutive refusals that mean the site has stopped serving us rather
+#: than that these particular pages are gone.
+_BLOCK_STREAK = 10
+
+
+class SiteBlockedError(RuntimeError):
+    """pf2.ru is refusing this crawler, not missing these pages."""
 
 
 class Scraper:
@@ -53,19 +68,39 @@ class Scraper:
     def fetch_all(self, urls: list[str]) -> Iterator[RawPage]:
         """Yields pages as they arrive, skipping the ones that cannot be had.
 
-        Two reasons not to collect first and not to stop on failure: a full
-        section runs to thousands of pages of a few hundred KB each, so
+        Two reasons not to collect first and not to stop on every failure: a
+        full section runs to thousands of pages of a few hundred KB each, so
         holding them all would cost about a gigabyte before parsing starts;
         and the sitemap lists URLs that now answer 404 or 500, so one dead
         link must not throw away the several hundred pages behind it.
+
+        A run of refusals is the opposite case and has to end the section.
+        pf2.ru rate-limits this crawler by answering 403, and skipping
+        through that marks every remaining page unreachable and reports the
+        section finished — a spells run lost 1306 live pages that way. The
+        pages are still there; we are simply not welcome for the moment, and
+        the right answer is to stop and come back.
         """
+        blocked_streak = 0
         with httpx.Client() as client:
             for url in urls:
                 try:
-                    yield self.fetch(url, client)
+                    page = self.fetch(url, client)
                 except httpx.HTTPError as exc:
                     _log.warning("Skipping %s: %s", url, _describe(exc))
                     self._unreachable.append(url)
+                    if _is_refusal(exc):
+                        blocked_streak += 1
+                        if blocked_streak >= _BLOCK_STREAK:
+                            raise SiteBlockedError(
+                                f"pf2.ru отказал {blocked_streak} раз подряд — "
+                                "похоже на блокировку. Останавливаюсь, чтобы не "
+                                "пометить остальные страницы как недоступные."
+                            ) from exc
+                    continue
+
+                blocked_streak = 0
+                yield page
 
     @property
     def unreachable(self) -> list[str]:
