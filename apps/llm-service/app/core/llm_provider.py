@@ -9,7 +9,12 @@ from openai import APIConnectionError, APITimeoutError, InternalServerError, Ope
 
 from app.core.config import settings
 from app.core.text_filter import TextFilter, strip_markup
-from app.core.tools import PROPOSE_SHEET_CHANGE, parse_change_arguments
+from app.core.tools import (
+    ASK_CLARIFICATION,
+    PROPOSE_SHEET_CHANGE,
+    parse_change_arguments,
+    parse_clarification,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -32,6 +37,8 @@ class Completion:
     proposed_changes: list[dict[str, Any]] = field(default_factory=list)
     """Which provider actually answered — the fallback is worth surfacing."""
     provider: str = ""
+    """Set when the model asked the player something instead of proposing."""
+    clarification: dict[str, Any] | None = None
 
 
 _clients: dict[str, OpenAI] = {}
@@ -81,14 +88,19 @@ def _complete_once(
     choice = response.choices[0].message
 
     changes: list[dict[str, Any]] = []
+    clarification: dict[str, Any] | None = None
     for call in getattr(choice, "tool_calls", None) or []:
-        if getattr(call.function, "name", None) == PROPOSE_SHEET_CHANGE:
+        name = getattr(call.function, "name", None)
+        if name == PROPOSE_SHEET_CHANGE:
             changes.extend(parse_change_arguments(call.function.arguments))
+        elif name == ASK_CLARIFICATION and clarification is None:
+            clarification = parse_clarification(call.function.arguments)
 
     return Completion(
         text=strip_markup(choice.content or ""),
         proposed_changes=changes,
         provider=config.label,
+        clarification=clarification,
     )
 
 
@@ -176,11 +188,19 @@ def _stream_once(
         yield trailing
 
     changes: list[dict[str, Any]] = []
+    clarification: dict[str, Any] | None = None
     for call in calls.values():
         if call["name"] == PROPOSE_SHEET_CHANGE:
             changes.extend(parse_change_arguments(call["arguments"]))
+        elif call["name"] == ASK_CLARIFICATION and clarification is None:
+            clarification = parse_clarification(call["arguments"])
 
-    yield Completion(text="".join(text_parts), proposed_changes=changes, provider=config.label)
+    yield Completion(
+        text="".join(text_parts),
+        proposed_changes=changes,
+        provider=config.label,
+        clarification=clarification,
+    )
 
 
 def stream(

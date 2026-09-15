@@ -165,11 +165,18 @@ export function buildPatchFromChanges(
   return patch as CharacterUpdate
 }
 
+/** A question the assistant asked instead of guessing at a sheet edit. */
+export interface Clarification {
+  question: string
+  options: string[]
+}
+
 export interface AskDone {
   proposed_changes: ProposedChange[]
   rejected_changes: string[]
   memory?: AskMemory
   message_id?: number | null
+  clarification?: Clarification | null
 }
 
 export interface AskStreamHandlers {

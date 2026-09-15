@@ -306,6 +306,7 @@ def ask_stream(
                             "provider": finished.get("provider", ""),
                             "memory": finished.get("memory", {}),
                             "message_id": message_id,
+                            "clarification": finished.get("clarification"),
                         },
                         ensure_ascii=False,
                     )

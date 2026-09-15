@@ -43,6 +43,13 @@ class Memory(BaseModel):
     budget: int = 0
 
 
+class Clarification(BaseModel):
+    """A question back to the player, asked instead of guessing at an edit."""
+
+    question: str
+    options: list[str] = []
+
+
 class AskResponse(BaseModel):
     answer: str
     sources: list[Source]
@@ -53,3 +60,4 @@ class AskResponse(BaseModel):
     memory: Memory = Memory()
     """Id of the saved answer, when the question belonged to a chat."""
     message_id: int | None = None
+    clarification: Clarification | None = None

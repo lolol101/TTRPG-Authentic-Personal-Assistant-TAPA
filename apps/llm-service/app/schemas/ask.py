@@ -48,9 +48,17 @@ class Memory(BaseModel):
     budget: int = 0
 
 
+class Clarification(BaseModel):
+    """A question back to the player, asked instead of guessing at an edit."""
+
+    question: str
+    options: list[str] = []
+
+
 class AskResponse(BaseModel):
     answer: str
     sources: list[Source]
     """Suggested sheet edits — nothing is applied until the player confirms."""
     proposed_changes: list[ProposedChange] = []
     memory: Memory = Memory()
+    clarification: Clarification | None = None
