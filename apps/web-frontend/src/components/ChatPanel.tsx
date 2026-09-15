@@ -426,6 +426,23 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
                             {change.reason && (
                               <span className="text-muted-foreground">· {change.reason}</span>
                             )}
+                            {/* Range checks pass any plausible number, so an
+                                unchecked sum is worth saying out loud. */}
+                            {change.verified ? (
+                              <span
+                                className="text-[10px] uppercase tracking-wide text-muted-foreground"
+                                title="Ассистент показал расчёт, и он сошёлся с листом"
+                              >
+                                расчёт сверен
+                              </span>
+                            ) : (
+                              <span
+                                className="text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-500"
+                                title="Ассистент не показал, от какого значения считал — проверь число сам"
+                              >
+                                без выкладки
+                              </span>
+                            )}
                           </li>
                         ))}
                       </ul>

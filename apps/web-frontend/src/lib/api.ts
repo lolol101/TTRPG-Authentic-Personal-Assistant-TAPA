@@ -21,6 +21,8 @@ export interface ProposedChange {
   reason: string
   label: string
   before: unknown
+  /** The assistant showed its arithmetic and the backend checked it out. */
+  verified?: boolean
 }
 
 /** How much of the chat the model was actually shown. */

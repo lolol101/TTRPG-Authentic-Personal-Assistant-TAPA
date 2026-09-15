@@ -49,6 +49,20 @@ SHEET_CHANGE_TOOL: dict[str, Any] = {
                                 "type": "string",
                                 "description": "Коротко: почему это изменение.",
                             },
+                            "basis": {
+                                "description": (
+                                    "Текущее значение этого поля в листе, как ты его "
+                                    "прочитал. Обязательно для числовых полей: по нему "
+                                    "проверяется, что расчёт шёл от реального состояния."
+                                ),
+                            },
+                            "delta": {
+                                "description": (
+                                    "На сколько меняется значение: -12 при уроне 12, "
+                                    "+1 при повышении. Должно выполняться "
+                                    "basis + delta = value."
+                                ),
+                            },
                         },
                         "required": ["path", "value"],
                     },
@@ -88,6 +102,10 @@ def parse_change_arguments(raw_arguments: str) -> list[dict[str, Any]]:
             "path": str(change["path"]),
             "value": change.get("value"),
             "reason": str(change.get("reason") or ""),
+            # The workings, when the model supplied them. web-backend checks
+            # them against the sheet; absent, the change is simply unverified.
+            "basis": change.get("basis"),
+            "delta": change.get("delta"),
         }
         for change in changes
         if isinstance(change, dict) and change.get("path")
