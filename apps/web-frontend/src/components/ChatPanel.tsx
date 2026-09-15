@@ -1,6 +1,7 @@
-import { Check, SendHorizontal } from 'lucide-react'
+import { SendHorizontal } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChatSidebar } from '@/components/ChatSidebar'
+import { ProposedChanges } from '@/components/ProposedChanges'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -28,6 +29,8 @@ interface Message {
   changes?: ProposedChange[]
   rejected?: string[]
   applied?: boolean
+  /** Sections already written to the sheet, when applied a part at a time. */
+  appliedSections?: string[]
   /** Asked instead of proposing an edit; answering it continues the turn. */
   clarification?: Clarification
   failed?: boolean
@@ -256,15 +259,34 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
     await send(option)
   }
 
-  async function applyChanges(message: Message) {
-    if (!character || !message.changes?.length) return
+  async function applyChanges(
+    message: Message,
+    section: string,
+    entries: ProposedChange[],
+  ) {
+    if (!character || !entries.length) return
 
-    await onApplyChanges(character.id, buildPatchFromChanges(character, message.changes))
-    if (activeChat && message.serverId) {
+    await onApplyChanges(character.id, buildPatchFromChanges(character, entries))
+
+    const sections = new Set(message.appliedSections ?? [])
+    if (section === '*') (message.changes ?? []).forEach((c) => sections.add(c.section ?? 'Основное'))
+    else sections.add(section)
+
+    // The server records only "this turn was applied", so it is marked once
+    // nothing is left to apply — partial progress lives in the page.
+    const remaining = (message.changes ?? []).some(
+      (change) => !sections.has(change.section ?? 'Основное'),
+    )
+    if (!remaining && activeChat && message.serverId) {
       await api.markApplied(token, activeChat.id, message.serverId)
     }
+
     setMessages((current) =>
-      current.map((entry) => (entry.id === message.id ? { ...entry, applied: true } : entry)),
+      current.map((entry) =>
+        entry.id === message.id
+          ? { ...entry, appliedSections: [...sections], applied: !remaining }
+          : entry,
+      ),
     )
   }
 
@@ -423,49 +445,15 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
                   )}
 
                   {message.changes && message.changes.length > 0 && (
-                    <div className="space-y-2 border-t pt-2">
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                        Предлагаемые изменения листа
-                      </p>
-                      <ul className="space-y-1 text-xs">
-                        {message.changes.map((change) => (
-                          <li key={change.path} className="flex flex-wrap items-baseline gap-1.5">
-                            <span className="font-medium">{change.label || change.path}</span>
-                            <span className="font-sans tabular-nums text-muted-foreground">
-                              {String(change.before)} → {String(change.value)}
-                            </span>
-                            {change.reason && (
-                              <span className="text-muted-foreground">· {change.reason}</span>
-                            )}
-                            {/* Range checks pass any plausible number, so an
-                                unchecked sum is worth saying out loud. */}
-                            {change.verified ? (
-                              <span
-                                className="text-[10px] uppercase tracking-wide text-muted-foreground"
-                                title="Ассистент показал расчёт, и он сошёлся с листом"
-                              >
-                                расчёт сверен
-                              </span>
-                            ) : (
-                              <span
-                                className="text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-500"
-                                title="Ассистент не показал, от какого значения считал — проверь число сам"
-                              >
-                                без выкладки
-                              </span>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                      {message.applied ? (
-                        <p className="text-xs text-muted-foreground">Применено к листу.</p>
-                      ) : (
-                        <Button size="sm" onClick={() => void applyChanges(message)}>
-                          <Check className="size-3.5" />
-                          Применить к листу
-                        </Button>
-                      )}
-                    </div>
+                    <ProposedChanges
+                      changes={message.changes}
+                      appliedSections={
+                        message.applied ? ['*'] : (message.appliedSections ?? [])
+                      }
+                      onApply={(section, entries) =>
+                        void applyChanges(message, section, entries)
+                      }
+                    />
                   )}
 
                   {message.clarification && (

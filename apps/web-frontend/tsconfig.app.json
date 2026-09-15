@@ -26,5 +26,8 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src"],
+  // Checked by tsconfig.node.json instead: it reads vite.config.ts off disk
+  // and needs Node's types, which the browser build deliberately excludes.
+  "exclude": ["src/lib/devProxy.test.ts"]
 }
