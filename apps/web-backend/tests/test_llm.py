@@ -237,6 +237,7 @@ def test_ask_returns_validated_proposals_without_applying_them(client, monkeypat
             # Nothing vouches for the arithmetic behind 42: the proposal
             # carried no basis or delta.
             "verified": False,
+            "section": "Основное",
         }
     ]
 
@@ -252,7 +253,8 @@ def test_ask_drops_proposals_outside_the_whitelist(client, monkeypatch) -> None:
         monkeypatch,
         [
             {"path": "hp_current", "value": 10},
-            {"path": "name", "value": "взломано"},
+            # Ownership stays off limits however much of the sheet is opened.
+            {"path": "owner_id", "value": 2},
         ],
     )
 

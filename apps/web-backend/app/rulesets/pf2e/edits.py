@@ -27,6 +27,129 @@ COLUMN_FIELDS: dict[str, tuple[str, int, int]] = {
     **{key: (label, -10, 10) for key, label in _ABILITY_FIELDS.items()},
 }
 
+#: Free text that belongs to the player rather than to the rules. Nothing
+#: here can distort a rule: it is their own fiction, a wrong value is visible
+#: at a glance, and fixing it is one click. Opened so the assistant can fill
+#: a sheet, not just adjust the numbers on one already filled.
+TEXT_COLUMNS: dict[str, str] = {
+    "name": "Имя",
+    "ancestry": "Происхождение",
+    "background": "Предыстория",
+    "class_name": "Класс",
+}
+
+#: The same, one level inside the sheet document.
+SHEET_TEXT_FIELDS: dict[str, str] = {
+    "player_name": "Имя игрока",
+    "heritage": "Наследие",
+    "size": "Размер",
+    "alignment": "Мировоззрение",
+    "traits": "Черты",
+    "deity": "Божество",
+    "languages": "Языки",
+    "senses": "Чувства",
+    "speed_notes": "Заметки о скорости",
+    "saves_notes": "Заметки об испытаниях",
+    "resistances": "Сопротивления",
+    "notes": "Заметки",
+}
+
+#: sheet_data.<group>.<key> — the prose sections of the printed sheet.
+SHEET_TEXT_GROUPS: dict[str, tuple[str, dict[str, str]]] = {
+    "bio": (
+        "Биография",
+        {
+            "ethnicity": "Народность",
+            "nationality": "Гражданство",
+            "birthplace": "Место рождения",
+            "age": "Возраст",
+            "gender": "Пол",
+            "height": "Рост",
+            "weight": "Вес",
+            "appearance": "Внешность",
+        },
+    ),
+    "personality": (
+        "Характер",
+        {
+            "attitude": "Нрав",
+            "beliefs": "Убеждения",
+            "likes": "Нравится",
+            "dislikes": "Не нравится",
+            "catchphrases": "Присказки",
+        },
+    ),
+    "campaign": (
+        "Кампания",
+        {
+            "notes": "Заметки",
+            "allies": "Союзники",
+            "enemies": "Враги",
+            "organizations": "Организации",
+        },
+    ),
+}
+
+#: Lists of cards — items, feats, spells. Each is replaced wholesale rather
+#: than appended to: a proposal the player can read as "this is the list
+#: afterwards" is one they can judge, where "add one somewhere" is not.
+CARD_FIELDS: dict[str, str] = {
+    "ancestry_feats": "Черты происхождения",
+    "skill_feats": "Черты навыков",
+    "general_feats": "Общие черты",
+    "class_feats": "Черты класса",
+    "bonus_feats": "Дополнительные черты",
+    "inventory.worn": "Надето",
+    "inventory.ready": "В руках",
+    "inventory.other": "Прочее снаряжение",
+    "spells": "Заклинания",
+    "focus_spells": "Фокусные заклинания",
+    "innate_spells": "Врождённые заклинания",
+}
+
+#: Stamped on any card the assistant filled in. Until the pf2.ru catalogue is
+#: indexed the model writes these from memory, and a sheet must not present
+#: that as if it came out of a book.
+ASSISTANT_SOURCE = "со слов ассистента"
+
+MAX_TEXT_CHARS = 2000
+MAX_CARDS = 60
+MAX_CARD_KEYS = 24
+
+#: Which part of the sheet a path belongs to. Filling a sheet produces dozens
+#: of changes at once, and forty diff lines with one button underneath is a
+#: confirmation nobody reads — grouped, the player can take it a part at a time.
+_SECTIONS: tuple[tuple[str, str], ...] = (
+    ("sheet_data.bio.", "Биография"),
+    ("sheet_data.personality.", "Характер"),
+    ("sheet_data.campaign.", "Кампания"),
+    ("sheet_data.inventory.", "Снаряжение"),
+    ("sheet_data.stats.", "Навыки и испытания"),
+    ("sheet_data.conditions.", "Состояния"),
+)
+
+_SECTION_BY_FIELD: dict[str, str] = {
+    **{key: "Личность" for key in TEXT_COLUMNS},
+    **{f"sheet_data.{key}": "Личность" for key in SHEET_TEXT_FIELDS},
+    **{
+        f"sheet_data.{key}": "Черты"
+        for key in ("ancestry_feats", "skill_feats", "general_feats", "class_feats", "bonus_feats")
+    },
+    **{f"sheet_data.{key}": "Магия" for key in ("spells", "focus_spells", "innate_spells")},
+    "sheet_data.hero_points": "Состояния",
+    "sheet_data.dying": "Состояния",
+    "sheet_data.wounded": "Состояния",
+}
+
+
+def section_for(path: str) -> str:
+    """Groups a change under a heading the player recognises from the sheet."""
+    for prefix, label in _SECTIONS:
+        if path.startswith(prefix):
+            return label
+    return _SECTION_BY_FIELD.get(path, "Основное")
+
+
 _CONDITION_KEYS = {
     "blinded",
     "clumsy",
@@ -94,6 +217,8 @@ class ResolvedChange:
     before: Any
     """True when the model showed its arithmetic and the arithmetic held."""
     verified: bool = False
+    """Which part of the sheet this belongs to, for grouping the diff."""
+    section: str = "Основное"
 
 
 class ChangeRejected(ValueError):
@@ -107,6 +232,77 @@ def _as_int(value: Any, label: str) -> int:
         return int(value)
     except (TypeError, ValueError) as exc:
         raise ChangeRejected(f"{label}: ожидалось число, пришло {value!r}") from exc
+
+
+def _as_text(value: Any, label: str) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        raise ChangeRejected(f"{label}: ожидался текст, пришло {type(value).__name__}")
+    text = str(value).strip()
+    if len(text) > MAX_TEXT_CHARS:
+        raise ChangeRejected(f"{label}: длиннее {MAX_TEXT_CHARS} символов")
+    return text
+
+
+def _clean_card(raw: Any, label: str, index: int) -> dict[str, Any]:
+    """One card, reduced to what a card can safely be.
+
+    Only flat scalar fields survive: a card is a stat block, and anything
+    nested arriving here is the model improvising a shape the sheet cannot
+    render. The source is stamped rather than trusted — see ASSISTANT_SOURCE.
+    """
+    if not isinstance(raw, dict):
+        raise ChangeRejected(f"{label}: элемент {index + 1} — не карточка")
+
+    name = _as_text(raw.get("name"), f"{label}: название")
+    if not name:
+        raise ChangeRejected(f"{label}: у элемента {index + 1} нет названия")
+
+    card: dict[str, Any] = {}
+    for key, value in list(raw.items())[:MAX_CARD_KEYS]:
+        if not isinstance(key, str):
+            continue
+        if isinstance(value, bool) or isinstance(value, (int, float)):
+            card[key] = value
+        elif value is None or isinstance(value, str):
+            card[key] = _as_text(value, f"{label}: {key}")
+
+    card["name"] = name
+    # Stamped, not trusted: the catalogue is not indexed yet, so this text
+    # came out of the model's memory and the sheet must say so.
+    if not str(card.get("source") or "").strip():
+        card["source"] = ASSISTANT_SOURCE
+    return card
+
+
+def _resolve_cards(
+    character: Character, change: ProposedChange, key: str, label: str
+) -> ResolvedChange:
+    if not isinstance(change.value, list):
+        raise ChangeRejected(f"{label}: ожидался список карточек")
+    if len(change.value) > MAX_CARDS:
+        raise ChangeRejected(f"{label}: больше {MAX_CARDS} карточек за раз")
+
+    cards = [_clean_card(raw, label, i) for i, raw in enumerate(change.value)]
+
+    sheet = character.sheet_data or {}
+    parts = key.split(".")
+    before: Any = sheet
+    for part in parts:
+        before = (before or {}).get(part) if isinstance(before, dict) else None
+    count = len(before) if isinstance(before, list) else 0
+
+    return ResolvedChange(
+        path=change.path,
+        value=cards,
+        reason=change.reason,
+        label=label,
+        # A list of stat blocks is unreadable as a diff; the counts are what
+        # the player actually judges, and the cards themselves are on screen.
+        before=f"{count} шт.",
+        section=section_for(change.path),
+    )
 
 
 def verify_workings(change: ProposedChange, before: Any, value: int, label: str) -> bool:
@@ -162,6 +358,35 @@ def _resolve_column(character: Character, change: ProposedChange) -> ResolvedCha
         label=label,
         before=before,
         verified=verify_workings(change, before, number, label),
+        section=section_for(change.path),
+    )
+
+
+def _resolve_text_column(character: Character, change: ProposedChange) -> ResolvedChange:
+    label = TEXT_COLUMNS[change.path]
+    return ResolvedChange(
+        path=change.path,
+        value=_as_text(change.value, label),
+        reason=change.reason,
+        label=label,
+        before=getattr(character, change.path),
+        section=section_for(change.path),
+    )
+
+
+def _resolve_sheet_text(
+    character: Character, change: ProposedChange, keys: list[str], label: str
+) -> ResolvedChange:
+    current: Any = character.sheet_data or {}
+    for key in keys:
+        current = current.get(key) if isinstance(current, dict) else None
+    return ResolvedChange(
+        path=change.path,
+        value=_as_text(change.value, label),
+        reason=change.reason,
+        label=label,
+        before=current or "",
+        section=section_for(change.path),
     )
 
 
@@ -185,6 +410,7 @@ def _resolve_sheet(character: Character, change: ProposedChange) -> ResolvedChan
             label=label,
             before=before,
             verified=verify_workings(change, before, number, label),
+            section=section_for(change.path),
         )
 
     if parts == ["sheet_data", "hero_points"]:
@@ -199,6 +425,7 @@ def _resolve_sheet(character: Character, change: ProposedChange) -> ResolvedChan
             label="Пункты героизма",
             before=before,
             verified=verify_workings(change, before, number, "Пункты героизма"),
+            section=section_for(change.path),
         )
 
     if parts[:1] == ["sheet_data"] and len(parts) == 2 and parts[1] in {"dying", "wounded"}:
@@ -214,6 +441,7 @@ def _resolve_sheet(character: Character, change: ProposedChange) -> ResolvedChan
             label=label,
             before=before,
             verified=verify_workings(change, before, number, label),
+            section=section_for(change.path),
         )
 
     if parts[:2] == ["sheet_data", "stats"] and len(parts) == 4:
@@ -243,7 +471,23 @@ def _resolve_sheet(character: Character, change: ProposedChange) -> ResolvedChan
             label=label,
             before=before,
             verified=checked,
+            section=section_for(change.path),
         )
+
+    if len(parts) == 2 and parts[1] in SHEET_TEXT_FIELDS:
+        return _resolve_sheet_text(character, change, [parts[1]], SHEET_TEXT_FIELDS[parts[1]])
+
+    if len(parts) == 3 and parts[1] in SHEET_TEXT_GROUPS:
+        group_label, keys = SHEET_TEXT_GROUPS[parts[1]]
+        if parts[2] not in keys:
+            raise ChangeRejected(f"{group_label}: неизвестное поле «{parts[2]}»")
+        return _resolve_sheet_text(
+            character, change, [parts[1], parts[2]], f"{group_label}: {keys[parts[2]]}"
+        )
+
+    key = ".".join(parts[1:])
+    if key in CARD_FIELDS:
+        return _resolve_cards(character, change, key, CARD_FIELDS[key])
 
     raise ChangeRejected(f"Путь «{change.path}» недоступен для правки")
 
@@ -262,6 +506,19 @@ def normalize_path(path: str) -> str:
     """
     if path.startswith(_SHEET_PREFIX) and path[len(_SHEET_PREFIX) :] in COLUMN_FIELDS:
         return path[len(_SHEET_PREFIX) :]
+
+    # "sheet_data.perception.rank" for what is stored at
+    # "sheet_data.stats.perception.rank". Observed in a real answer; the stat
+    # is named and the part is named, so the intent is not in doubt.
+    parts = path.split(".")
+    if (
+        len(parts) == 3
+        and parts[0] == "sheet_data"
+        and parts[1] in _STAT_KEYS
+        and parts[2] in _STAT_PARTS
+    ):
+        return f"sheet_data.stats.{parts[1]}.{parts[2]}"
+
     return path
 
 
@@ -278,6 +535,8 @@ def resolve_change(character: Character, change: ProposedChange) -> ResolvedChan
 
     if change.path in COLUMN_FIELDS:
         return _resolve_column(character, change)
+    if change.path in TEXT_COLUMNS:
+        return _resolve_text_column(character, change)
     if change.path.startswith(_SHEET_PREFIX):
         return _resolve_sheet(character, change)
     raise ChangeRejected(f"Путь «{change.path}» недоступен для правки")
@@ -307,7 +566,10 @@ def build_update_payload(character: Character, changes: list[ResolvedChange]) ->
     sheet: dict | None = None
 
     for change in changes:
-        if change.path in COLUMN_FIELDS:
+        # Both kinds of typed column, numeric and text: anything not prefixed
+        # with sheet_data. is a column, and treating one as a document path
+        # would leave nothing to write it into.
+        if change.path in COLUMN_FIELDS or change.path in TEXT_COLUMNS:
             payload[change.path] = change.value
             continue
 

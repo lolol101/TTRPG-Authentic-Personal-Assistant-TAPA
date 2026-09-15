@@ -71,6 +71,7 @@ def _check_proposals(
             "label": change.label,
             "before": change.before,
             "verified": change.verified,
+            "section": change.section,
         }
         for change in resolved
     ], rejected

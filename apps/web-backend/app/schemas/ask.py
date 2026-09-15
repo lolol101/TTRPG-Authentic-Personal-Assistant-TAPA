@@ -31,6 +31,8 @@ class ProposedChange(BaseModel):
     before: object = None
     """Whether the assistant showed its arithmetic and the arithmetic held."""
     verified: bool = False
+    """Which part of the sheet this belongs to, for grouping the diff."""
+    section: str = "Основное"
 
 
 class Memory(BaseModel):

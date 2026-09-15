@@ -32,17 +32,37 @@ SHEET_CHANGE_TOOL: dict[str, Any] = {
                             "path": {
                                 "type": "string",
                                 "description": (
-                                    "Что менять. Доступно: hp_current, hp_max, level, ac, "
+                                    "Что менять. Числа: hp_current, hp_max, level, ac, "
                                     "speed, str_mod, dex_mod, con_mod, int_mod, wis_mod, "
                                     "cha_mod, sheet_data.hero_points, sheet_data.dying, "
                                     "sheet_data.wounded, sheet_data.conditions.<состояние>, "
-                                    "sheet_data.stats.<характеристика>.rank|item|temporary"
+                                    "sheet_data.stats.<характеристика>.rank|item|temporary. "
+                                    "Текст: name, ancestry, background, class_name, "
+                                    "sheet_data.heritage|deity|languages|size|alignment|"
+                                    "traits|senses|resistances|notes|player_name, "
+                                    "sheet_data.bio.<ethnicity|nationality|birthplace|age|"
+                                    "gender|height|weight|appearance>, "
+                                    "sheet_data.personality.<attitude|beliefs|likes|dislikes|"
+                                    "catchphrases>, "
+                                    "sheet_data.campaign.<notes|allies|enemies|organizations>. "
+                                    "Других полей в этих группах нет — свободный рассказ о "
+                                    "персонаже клади в sheet_data.notes. "
+                                    "Карточки (список объектов): sheet_data.inventory.worn|"
+                                    "ready|other, sheet_data.ancestry_feats|skill_feats|"
+                                    "general_feats|class_feats|bonus_feats, sheet_data.spells|"
+                                    "focus_spells|innate_spells"
                                 ),
                             },
                             "value": {
                                 "description": (
                                     "Новое значение целиком, а не разница. Для умения — "
-                                    "untrained, trained, expert, master или legendary."
+                                    "untrained, trained, expert, master или legendary. "
+                                    "Для карточек — весь список целиком, каким он должен "
+                                    "стать: каждая карточка это объект с полем name и "
+                                    "плоскими полями вроде level, price, bulk, traits, "
+                                    "description. Если знаешь книгу-источник, укажи её в "
+                                    "поле source; если пишешь по памяти — не указывай, "
+                                    "карточка будет помечена автоматически."
                                 ),
                             },
                             "reason": {

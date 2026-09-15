@@ -2,6 +2,8 @@ import pytest
 
 from app.models.character import Character
 from app.rulesets.pf2e.edits import (
+    ASSISTANT_SOURCE,
+    MAX_CARDS,
     ChangeRejected,
     ProposedChange,
     build_update_payload,
@@ -47,13 +49,14 @@ def test_refuses_a_column_outside_its_range() -> None:
 
 
 def test_refuses_a_path_that_is_not_on_the_whitelist() -> None:
+    """Ownership and identity stay off limits however much else is opened."""
     with pytest.raises(ChangeRejected, match="недоступен для правки"):
-        resolve_change(_character(), ProposedChange("name", "Другое имя"))
+        resolve_change(_character(), ProposedChange("owner_id", 2))
 
 
 def test_refuses_arbitrary_sheet_paths() -> None:
     with pytest.raises(ChangeRejected, match="недоступен для правки"):
-        resolve_change(_character(), ProposedChange("sheet_data.player_name", "Никита"))
+        resolve_change(_character(), ProposedChange("sheet_data.whatever_it_invented", 1))
 
 
 def test_accepts_a_condition_with_its_value() -> None:
@@ -105,7 +108,7 @@ def test_one_bad_proposal_does_not_discard_the_good_ones() -> None:
         _character(),
         [
             ProposedChange("hp_current", 40),
-            ProposedChange("name", "взлом"),
+            ProposedChange("owner_id", 2),
             ProposedChange("sheet_data.conditions.prone", 1),
         ],
     )
@@ -275,3 +278,174 @@ def test_one_unverifiable_change_does_not_sink_the_others() -> None:
 
     assert [change.path for change in resolved] == ["ac"]
     assert len(rejected) == 1
+
+
+def test_the_assistant_can_name_and_describe_a_character() -> None:
+    """The player's own fiction: no rule can be distorted here."""
+    resolved, rejected = resolve_changes(
+        _character(),
+        [
+            ProposedChange(path="name", value="Кассий"),
+            ProposedChange(path="class_name", value="Плут"),
+            ProposedChange(path="sheet_data.deity", value="Нортерия"),
+            ProposedChange(path="sheet_data.bio.appearance", value="Худой, шрам через бровь"),
+        ],
+    )
+
+    assert rejected == []
+    assert [change.value for change in resolved] == [
+        "Кассий",
+        "Плут",
+        "Нортерия",
+        "Худой, шрам через бровь",
+    ]
+
+
+def test_an_unknown_field_inside_a_text_group_is_refused() -> None:
+    _, rejected = resolve_changes(
+        _character(), [ProposedChange(path="sheet_data.bio.favourite_colour", value="синий")]
+    )
+
+    assert rejected and "favourite_colour" in rejected[0]
+
+
+def test_cards_can_be_added_to_the_sheet() -> None:
+    resolved, rejected = resolve_changes(
+        _character(),
+        [
+            ProposedChange(
+                path="sheet_data.inventory.ready",
+                value=[{"name": "Рапира", "price": "2 зм", "bulk": "1"}],
+            )
+        ],
+    )
+
+    assert rejected == []
+    assert resolved[0].value[0]["name"] == "Рапира"
+
+
+def test_a_card_the_assistant_wrote_says_so() -> None:
+    """The catalogue is not indexed yet, so this came out of the model's
+    memory and the sheet must not present it as if it came from a book."""
+    resolved, _ = resolve_changes(
+        _character(),
+        [ProposedChange(path="sheet_data.class_feats", value=[{"name": "Ловкий удар"}])],
+    )
+
+    assert resolved[0].value[0]["source"] == ASSISTANT_SOURCE
+
+
+def test_a_source_the_model_cites_is_left_alone() -> None:
+    resolved, _ = resolve_changes(
+        _character(),
+        [
+            ProposedChange(
+                path="sheet_data.class_feats",
+                value=[{"name": "Ловкий удар", "source": "Основная книга игрока"}],
+            )
+        ],
+    )
+
+    assert resolved[0].value[0]["source"] == "Основная книга игрока"
+
+
+def test_a_card_without_a_name_is_refused() -> None:
+    """A nameless card is a row the player cannot identify or remove."""
+    _, rejected = resolve_changes(
+        _character(), [ProposedChange(path="sheet_data.spells", value=[{"level": 1}])]
+    )
+
+    assert rejected
+
+
+def test_nested_junk_inside_a_card_is_dropped_not_stored() -> None:
+    """A card is a stat block; anything nested is the model improvising a
+    shape the sheet cannot render."""
+    resolved, _ = resolve_changes(
+        _character(),
+        [
+            ProposedChange(
+                path="sheet_data.spells",
+                value=[{"name": "Искра", "nested": {"a": 1}, "level": 1}],
+            )
+        ],
+    )
+
+    card = resolved[0].value[0]
+    assert "nested" not in card
+    assert card["level"] == 1
+
+
+def test_a_card_list_that_is_not_a_list_is_refused() -> None:
+    _, rejected = resolve_changes(
+        _character(), [ProposedChange(path="sheet_data.spells", value="Искра")]
+    )
+
+    assert rejected
+
+
+def test_a_flood_of_cards_is_refused() -> None:
+    _, rejected = resolve_changes(
+        _character(),
+        [
+            ProposedChange(
+                path="sheet_data.skill_feats",
+                value=[{"name": f"Черта {i}"} for i in range(MAX_CARDS + 1)],
+            )
+        ],
+    )
+
+    assert rejected
+
+
+def test_changes_are_grouped_by_part_of_the_sheet() -> None:
+    """Forty diff lines under one button is a confirmation nobody reads."""
+    resolved, _ = resolve_changes(
+        _character(),
+        [
+            ProposedChange(path="level", value=1),
+            ProposedChange(path="name", value="Кассий"),
+            ProposedChange(path="sheet_data.bio.age", value="24"),
+            ProposedChange(path="sheet_data.inventory.worn", value=[{"name": "Кожаный доспех"}]),
+        ],
+    )
+
+    assert [change.section for change in resolved] == [
+        "Основное",
+        "Личность",
+        "Биография",
+        "Снаряжение",
+    ]
+
+
+def test_a_filled_sheet_survives_the_round_trip() -> None:
+    """The whole point: a sheet filled in one turn must come out as a patch
+    the characters endpoint can write."""
+    character = _character(sheet_data={})
+    resolved, rejected = resolve_changes(
+        character,
+        [
+            ProposedChange(path="class_name", value="Плут"),
+            ProposedChange(path="sheet_data.heritage", value="Полуэльф"),
+            ProposedChange(path="sheet_data.bio.age", value="24"),
+            ProposedChange(path="sheet_data.inventory.ready", value=[{"name": "Рапира"}]),
+        ],
+    )
+    payload = build_update_payload(character, resolved)
+
+    assert rejected == []
+    assert payload["class_name"] == "Плут"
+    assert payload["sheet_data"]["heritage"] == "Полуэльф"
+    assert payload["sheet_data"]["bio"]["age"] == "24"
+    assert payload["sheet_data"]["inventory"]["ready"][0]["name"] == "Рапира"
+
+
+def test_a_stat_path_missing_its_stats_segment_is_understood() -> None:
+    """Seen in a real answer: sheet_data.perception.rank for what lives at
+    sheet_data.stats.perception.rank. The stat and the part are both named,
+    so refusing it on a path technicality throws away a sound suggestion."""
+    assert normalize_path("sheet_data.perception.rank") == "sheet_data.stats.perception.rank"
+
+
+def test_normalisation_does_not_invent_a_stat() -> None:
+    assert normalize_path("sheet_data.cooking.rank") == "sheet_data.cooking.rank"

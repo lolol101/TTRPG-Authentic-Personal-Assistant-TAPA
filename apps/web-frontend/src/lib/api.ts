@@ -23,6 +23,8 @@ export interface ProposedChange {
   before: unknown
   /** The assistant showed its arithmetic and the backend checked it out. */
   verified?: boolean
+  /** Which part of the sheet this belongs to, for grouping the diff. */
+  section?: string
 }
 
 /** How much of the chat the model was actually shown. */
