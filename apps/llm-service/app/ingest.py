@@ -33,7 +33,26 @@ def to_metadata(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def deduplicate(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drops repeated ids, keeping the first.
+
+    Chroma rejects a batch carrying the same id twice, which failed the whole
+    run. The sitemap that produced these files lists a good many pages more
+    than once; that is fixed at the source now, but the files already written
+    still carry the repeats and re-crawling is not always possible.
+    """
+    seen: set[str] = set()
+    unique = []
+    for record in records:
+        if record["id"] in seen:
+            continue
+        seen.add(record["id"])
+        unique.append(record)
+    return unique
+
+
 def ingest_records(records: list[dict[str, Any]], provider: EmbeddingProvider) -> int:
+    records = deduplicate(records)
     total = 0
     for start in range(0, len(records), _BATCH_SIZE):
         batch = records[start : start + _BATCH_SIZE]

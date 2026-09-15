@@ -23,10 +23,20 @@ def fetch_sitemap_urls(sitemap_url: str, *, user_agent: str, timeout: float = 30
 def filter_by_prefix(urls: list[str], *, path_prefix: str, limit: int | None = None) -> list[str]:
     """Keep URLs whose path starts with *path_prefix* (e.g. "/actions/"), in order.
 
+    Repeats are dropped: pf2.ru lists a good many pages more than once, and
+    fetching those twice cost about a quarter of every crawl against a site
+    that rate-limits — besides writing the same chunk into the index twice.
+
     *limit* caps how many are returned — first N in sitemap order, so the
     selection is deterministic and reproducible across runs.
     """
-    matched = [url for url in urls if _path_of(url).startswith(path_prefix)]
+    matched: list[str] = []
+    seen: set[str] = set()
+    for url in urls:
+        if not _path_of(url).startswith(path_prefix) or url in seen:
+            continue
+        seen.add(url)
+        matched.append(url)
     return matched[:limit] if limit is not None else matched
 
 
