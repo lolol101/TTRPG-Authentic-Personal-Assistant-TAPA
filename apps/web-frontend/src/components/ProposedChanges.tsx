@@ -6,6 +6,9 @@ interface Props {
   changes: ProposedChange[]
   /** Sections already written to the sheet, so they are not offered twice. */
   appliedSections: string[]
+  /** Sections with an apply request still in flight — greyed out and
+   * unclickable so a slow network doesn't invite a second click. */
+  applyingSections: string[]
   onApply: (section: string, changes: ProposedChange[]) => void
 }
 
@@ -41,9 +44,17 @@ function groupBySection(changes: ProposedChange[]): [string, ProposedChange[]][]
  * point of asking. Per-section buttons let the player take the parts they
  * agree with and leave the rest.
  */
-export function ProposedChanges({ changes, appliedSections, onApply }: Props) {
+export function ProposedChanges({
+  changes,
+  appliedSections,
+  applyingSections,
+  onApply,
+}: Props) {
   const sections = groupBySection(changes)
   const pending = sections.filter(([section]) => !appliedSections.includes(section))
+  // Applying one section at a time avoids two requests racing to patch the
+  // same sheet, so "Применить всё" also greys out while any single one runs.
+  const anyApplying = applyingSections.length > 0
 
   return (
     <div className="space-y-2 border-t pt-2">
@@ -56,15 +67,17 @@ export function ProposedChanges({ changes, appliedSections, onApply }: Props) {
             size="sm"
             variant="outline"
             className="ml-auto h-6 text-xs"
+            disabled={anyApplying}
             onClick={() => onApply('*', pending.flatMap(([, entries]) => entries))}
           >
-            Применить всё
+            {applyingSections.includes('*') ? 'Применяю…' : 'Применить всё'}
           </Button>
         )}
       </div>
 
       {sections.map(([section, entries]) => {
         const done = appliedSections.includes(section)
+        const applyingThis = applyingSections.includes(section) || applyingSections.includes('*')
         return (
           <div key={section} className="rounded border bg-background/40 p-2">
             <div className="mb-1 flex items-center gap-2">
@@ -76,10 +89,11 @@ export function ProposedChanges({ changes, appliedSections, onApply }: Props) {
                 <Button
                   size="sm"
                   className="ml-auto h-6 text-xs"
+                  disabled={anyApplying}
                   onClick={() => onApply(section, entries)}
                 >
                   <Check className="size-3" />
-                  Применить
+                  {applyingThis ? 'Применяю…' : 'Применить'}
                 </Button>
               )}
             </div>

@@ -118,6 +118,9 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
   const [question, setQuestion] = useState('')
   const [asking, setAsking] = useState(false)
   const [error, setError] = useState('')
+  /** `${messageId}:${section}` for every apply request still in flight — the
+   * button greys out the instant it's clicked, not once the network answers. */
+  const [applying, setApplying] = useState<Set<string>>(new Set())
 
   // Used only until a chat exists: the first question creates one, and these
   // are what it is created with.
@@ -302,28 +305,39 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
   ) {
     if (!character || !entries.length) return
 
-    await onApplyChanges(character.id, buildPatchFromChanges(character, entries))
+    const key = `${message.id}:${section}`
+    setApplying((current) => new Set(current).add(key))
+    try {
+      await onApplyChanges(character.id, buildPatchFromChanges(character, entries))
 
-    const sections = new Set(message.appliedSections ?? [])
-    if (section === '*') (message.changes ?? []).forEach((c) => sections.add(c.section ?? 'Основное'))
-    else sections.add(section)
+      const sections = new Set(message.appliedSections ?? [])
+      if (section === '*')
+        (message.changes ?? []).forEach((c) => sections.add(c.section ?? 'Основное'))
+      else sections.add(section)
 
-    // The server records only "this turn was applied", so it is marked once
-    // nothing is left to apply — partial progress lives in the page.
-    const remaining = (message.changes ?? []).some(
-      (change) => !sections.has(change.section ?? 'Основное'),
-    )
-    if (!remaining && activeChat && message.serverId) {
-      await api.markApplied(token, activeChat.id, message.serverId)
+      // The server records only "this turn was applied", so it is marked once
+      // nothing is left to apply — partial progress lives in the page.
+      const remaining = (message.changes ?? []).some(
+        (change) => !sections.has(change.section ?? 'Основное'),
+      )
+      if (!remaining && activeChat && message.serverId) {
+        await api.markApplied(token, activeChat.id, message.serverId)
+      }
+
+      setMessages((current) =>
+        current.map((entry) =>
+          entry.id === message.id
+            ? { ...entry, appliedSections: [...sections], applied: !remaining }
+            : entry,
+        ),
+      )
+    } finally {
+      setApplying((current) => {
+        const next = new Set(current)
+        next.delete(key)
+        return next
+      })
     }
-
-    setMessages((current) =>
-      current.map((entry) =>
-        entry.id === message.id
-          ? { ...entry, appliedSections: [...sections], applied: !remaining }
-          : entry,
-      ),
-    )
   }
 
   async function removeChat(id: number) {
@@ -487,6 +501,9 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
                       appliedSections={
                         message.applied ? ['*'] : (message.appliedSections ?? [])
                       }
+                      applyingSections={[...applying]
+                        .filter((key) => key.startsWith(`${message.id}:`))
+                        .map((key) => key.slice(message.id.length + 1))}
                       onApply={(section, entries) =>
                         void applyChanges(message, section, entries)
                       }
