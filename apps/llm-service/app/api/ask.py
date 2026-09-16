@@ -81,19 +81,43 @@ def _retrieve_per_area(payload: AskRequest, steps: list[PlanStep]) -> list[dict]
     return merged
 
 
-def _prepare(payload: AskRequest) -> tuple[list[dict], list[dict], FittedHistory]:
-    """Retrieval and prompt assembly, shared by the two endpoints."""
+def _prepare_with_progress(
+    payload: AskRequest,
+) -> Iterator[str]:
+    """Retrieval and prompt assembly, announcing each stage as it starts.
+
+    A split sheet request does a planning call and then one search per area
+    before a single word of the answer exists. Yielding the stage turns that
+    silence into something a reader can follow; the assembled prompt comes
+    back as the generator's return value.
+    """
     turns = [Turn(role=message.role, text=message.text) for message in payload.history]
     fitted = fit_history(turns, settings.history_token_budget)
 
     # A request to change the sheet is really several requests; ask what it
     # touches and search for each part. An ordinary question plans to
     # nothing and keeps the single cheap retrieval it has always had.
-    steps = plan_for(payload.question) if _tools_for(payload) else []
+    steps: list[PlanStep] = []
+    if _tools_for(payload):
+        yield event("stage", {"stage": "planning"})
+        steps = plan_for(payload.question)
 
+    retrieved: list[dict] = []
     if steps:
-        retrieved = _retrieve_per_area(payload, steps)
+        seen: set[str] = set()
+        for index, step in enumerate(steps, 1):
+            yield event(
+                "stage",
+                {"stage": "searching", "area": step.area, "index": index, "total": len(steps)},
+            )
+            for hit in retrieve(step.query, payload.k, ruleset=payload.ruleset):
+                key = hit.get("id") or hit["metadata"]["url"]
+                if key in seen:
+                    continue
+                seen.add(key)
+                retrieved.append(hit)
     else:
+        yield event("stage", {"stage": "searching"})
         # Searched against the whole history, not the trimmed part: a follow-up
         # should still find the right rule page even when the turn it leans on
         # has already slid out of the model's window.
@@ -108,7 +132,17 @@ def _prepare(payload: AskRequest) -> tuple[list[dict], list[dict], FittedHistory
         allow_sheet_edits=payload.allow_sheet_edits,
         history=fitted.messages,
     )
-    return retrieved, messages, fitted
+    return (retrieved, messages, fitted)
+
+
+def _prepare(payload: AskRequest) -> tuple[list[dict], list[dict], FittedHistory]:
+    """The same work for the non-streaming endpoint, with nobody watching."""
+    generator = _prepare_with_progress(payload)
+    while True:
+        try:
+            next(generator)
+        except StopIteration as done:
+            return done.value
 
 
 @router.post("/ask", response_model=AskResponse)
@@ -165,11 +199,16 @@ def ask_stream(payload: AskRequest) -> StreamingResponse:
     spinner for the whole generation.
     """
     started_at = time.monotonic()
-    retrieved, messages, fitted = _prepare(payload)
     tools = _tools_for(payload)
 
     def events() -> Iterator[str]:
+        # Prepared inside the generator so planning and each search can be
+        # announced as they happen; done before it, the reader would watch
+        # a blank screen through the slowest part of the request.
+        retrieved, messages, fitted = yield from _prepare_with_progress(payload)
+
         yield event("sources", [source.model_dump() for source in _sources_of(retrieved)])
+        yield event("stage", {"stage": "generating"})
 
         completion: Completion | None = None
         try:

@@ -181,7 +181,22 @@ export interface AskDone {
   clarification?: Clarification | null
 }
 
+/**
+ * Where the request has got to, before any of the answer exists.
+ *
+ * A sheet request plans, then searches once per area, then generates — and
+ * on a slow provider that is many seconds of nothing. `area` and `index` are
+ * present only while searching a split request.
+ */
+export interface AskStage {
+  stage: 'planning' | 'searching' | 'generating'
+  area?: string
+  index?: number
+  total?: number
+}
+
 export interface AskStreamHandlers {
+  onStage?: (stage: AskStage) => void
   onSources?: (sources: AskSource[]) => void
   onDelta?: (text: string) => void
   onDone?: (result: AskDone) => void
@@ -261,7 +276,8 @@ function handleFrame(frame: string, handlers: AskStreamHandlers): void {
     return
   }
 
-  if (name === 'sources') handlers.onSources?.(data as AskSource[])
+  if (name === 'stage') handlers.onStage?.(data as AskStage)
+  else if (name === 'sources') handlers.onSources?.(data as AskSource[])
   else if (name === 'delta') handlers.onDelta?.((data as { text: string }).text)
   else if (name === 'done') handlers.onDone?.(data as AskDone)
   else if (name === 'error') throw new ApiError((data as { detail: string }).detail)
