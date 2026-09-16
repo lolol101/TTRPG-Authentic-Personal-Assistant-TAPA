@@ -109,6 +109,53 @@ def test_edit_instructions_are_absent_without_a_character() -> None:
     assert "propose_sheet_change" not in build_system_prompt(allow_sheet_edits=True)
 
 
+def test_retry_feedback_replaces_the_question_turn_verbatim() -> None:
+    """This leg is web-backend reporting what its checker did with the
+    model's last proposal — not a new question, so the usual "Контекст:
+    ...\\nВопрос: ..." wrapping (which implies a search happened) is skipped
+    entirely."""
+    messages = build_ask_messages(
+        "вопрос, который никогда не должен появиться",
+        [{"id": "a", "text": "текст A", "metadata": {"title": "A", "source_book": "К"}}],
+        retry_feedback="Отклонено: sheet_data.ancestry недоступен для правки",
+    )
+
+    last = messages[-1]
+    assert last == {
+        "role": "user",
+        "content": "Отклонено: sheet_data.ancestry недоступен для правки",
+    }
+    assert "вопрос, который никогда не должен появиться" not in _flatten(messages)
+    assert "текст A" not in _flatten(messages)
+
+
+def test_retry_feedback_still_follows_the_remembered_turns() -> None:
+    messages = build_ask_messages(
+        "вопрос",
+        [],
+        history=[Turn("user", "Собери персонажа"), Turn("assistant", "Готово, вот план.")],
+        retry_feedback="Отклонено: ...",
+    )
+
+    assert [message["role"] for message in messages] == ["system", "user", "assistant", "user"]
+    assert messages[-1]["content"] == "Отклонено: ..."
+
+
+def test_retry_feedback_keeps_the_character_and_edit_instructions() -> None:
+    system = _system(
+        build_ask_messages(
+            "вопрос",
+            [],
+            character_context="Персонаж: Рэм",
+            allow_sheet_edits=True,
+            retry_feedback="Отклонено: ...",
+        )
+    )
+
+    assert "Лист персонажа" in system
+    assert "propose_sheet_change" in system
+
+
 def test_the_rules_context_stays_next_to_the_question_it_was_found_for() -> None:
     retrieved = [{"id": "a", "text": "текст A", "metadata": {"title": "A", "source_book": "К"}}]
 

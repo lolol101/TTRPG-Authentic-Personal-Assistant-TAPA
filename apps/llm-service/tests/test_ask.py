@@ -149,6 +149,82 @@ def test_the_answer_reports_how_much_of_the_chat_was_remembered(monkeypatch) -> 
     assert memory["budget"] > 0
 
 
+def test_retry_feedback_never_touches_retrieve_or_the_embedder(monkeypatch) -> None:
+    """web-backend's checker already rejected the bad part of the previous
+    proposal — this leg is the model reading that result, not a new
+    question, so nothing here should call retrieve() at all."""
+
+    def _must_not_run(question, k, ruleset=None):
+        raise AssertionError("a retry leg must not search the rulebooks")
+
+    monkeypatch.setattr(ask, "retrieve", _must_not_run)
+    monkeypatch.setattr(ask, "complete", lambda messages, tools=None: Completion("исправлено"))
+
+    response = client.post(
+        "/ask",
+        json={
+            "question": "Собери персонажа",
+            "allow_sheet_edits": True,
+            "character_context": "Лист: пустой",
+            "retry_feedback": "Отклонено: sheet_data.ancestry",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["sources"] == []
+
+
+def test_retry_feedback_becomes_the_final_message_unwrapped(monkeypatch) -> None:
+    """Not folded into the usual "Контекст:...\\nВопрос:..." shape — that
+    shape implies a search happened, and none did here."""
+    captured = {}
+
+    monkeypatch.setattr(ask, "retrieve", lambda question, k, ruleset=None: [])
+
+    def _fake_complete(messages, tools=None):
+        captured["messages"] = messages
+        return Completion("ok")
+
+    monkeypatch.setattr(ask, "complete", _fake_complete)
+
+    client.post(
+        "/ask",
+        json={
+            "question": "исходный вопрос — не должен попасть в сообщение",
+            "allow_sheet_edits": True,
+            "character_context": "Лист: пустой",
+            "retry_feedback": "Отклонено: sheet_data.ancestry недоступен",
+        },
+    )
+
+    last = captured["messages"][-1]
+    assert last == {"role": "user", "content": "Отклонено: sheet_data.ancestry недоступен"}
+
+
+def test_retry_feedback_still_offers_the_sheet_tools(monkeypatch) -> None:
+    captured = {}
+
+    monkeypatch.setattr(ask, "retrieve", lambda question, k, ruleset=None: [])
+
+    def _fake_complete(messages, tools=None):
+        captured["tools"] = tools
+        return Completion("ok")
+
+    monkeypatch.setattr(ask, "complete", _fake_complete)
+
+    client.post(
+        "/ask",
+        json={
+            "question": "вопрос",
+            "allow_sheet_edits": True,
+            "character_context": "Лист: пустой",
+            "retry_feedback": "Отклонено: ...",
+        },
+    )
+
+    assert captured["tools"]
+
+
 def test_turns_that_do_not_fit_the_budget_are_reported_as_dropped(monkeypatch) -> None:
     """The reader is told where memory ends rather than left to guess."""
     monkeypatch.setattr(ask, "retrieve", lambda question, k, ruleset=None: [])

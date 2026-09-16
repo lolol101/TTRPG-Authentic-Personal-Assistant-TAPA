@@ -64,6 +64,21 @@ def _prepare(payload: AskRequest) -> tuple[list[dict], list[dict], FittedHistory
     turns = [Turn(role=message.role, text=message.text) for message in payload.history]
     fitted = fit_history(turns, settings.history_token_budget)
 
+    if payload.retry_feedback is not None:
+        # web-backend's checker rejected part of the model's last proposal
+        # and is reporting the result, not asking something new — nothing
+        # here needs the rulebooks searched again, so no retrieval and no
+        # embedding call are made for this leg. See build_ask_messages.
+        messages = build_ask_messages(
+            payload.question,
+            [],
+            payload.character_context,
+            allow_sheet_edits=payload.allow_sheet_edits,
+            history=fitted.messages,
+            retry_feedback=payload.retry_feedback,
+        )
+        return [], messages, fitted
+
     # Searched against the whole history, not the trimmed part: a follow-up
     # should still find the right rule page even when the turn it leans on
     # has already slid out of the model's window.

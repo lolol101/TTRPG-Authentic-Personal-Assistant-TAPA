@@ -21,6 +21,12 @@ class AskRequest(BaseModel):
     allow_sheet_edits: bool = False
     """Earlier turns of this chat. Trimmed here to fit the model's window."""
     history: list[HistoryMessage] = []
+    """web-backend's code checked the model's last proposal and rejected part
+    of it — this is that result, written out for the model to read. Set only
+    on the one-shot retry that follows a rejection; its presence is what
+    tells /ask this is not a new question, so no rules are searched for it.
+    See app.core.prompts.build_ask_messages."""
+    retry_feedback: str | None = None
 
 
 class Source(BaseModel):
