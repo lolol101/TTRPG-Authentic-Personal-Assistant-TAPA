@@ -62,6 +62,7 @@ const AREA_LABELS: Record<string, string> = {
  */
 function stageLabel(stage: AskStage | undefined, hasSources: boolean): string {
   if (!stage) return hasSources ? 'Пишу ответ…' : 'Ищу в правилах…'
+  if (stage.stage === 'rewriting') return 'Перевожу вопрос на язык правил…'
   if (stage.stage === 'planning') return 'Разбираю запрос по разделам листа…'
   if (stage.stage === 'generating') return 'Пишу ответ…'
 

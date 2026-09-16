@@ -185,6 +185,55 @@ def parse_clarification(raw_arguments: str) -> dict[str, Any] | None:
     return {"question": question, "options": options[:5]}
 
 
+REWRITE_SEARCH_QUERY = "search_the_rulebooks_in_english"
+
+SEARCH_QUERY_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": REWRITE_SEARCH_QUERY,
+        "description": (
+            "Дать английский поисковый запрос по книге правил для вопроса "
+            "игрока. Книги правил на английском, поэтому русский вопрос "
+            "находит нужную страницу заметно хуже. Вызывай, если вопрос не "
+            "на английском или сформулирован разговорно. Если вопрос уже "
+            "короткий и английский — не вызывай инструмент вовсе."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Короткий запрос из терминов правил: название "
+                        "действия, черты, заклинания, снаряжения, состояния. "
+                        "Не переводи дословно и не пиши предложение — пиши "
+                        "то, как это называется в книге. Пример: вопрос "
+                        "«Что делает действие Устрашение?» → "
+                        "«Demoralize action»."
+                    ),
+                }
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+
+def parse_search_query(raw_arguments: str) -> str | None:
+    """Reads a rewrite call, or returns None if it says nothing usable."""
+    try:
+        parsed = json.loads(raw_arguments)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+
+    query = str(parsed.get("query") or "").strip()
+    # A "rewrite" that came back as a whole paragraph is the model answering
+    # the question instead of naming it; embedding that buys nothing.
+    return query if query and len(query) <= 200 else None
+
+
 PLAN_SHEET_WORK = "plan_sheet_work"
 
 SHEET_PLAN_TOOL: dict[str, Any] = {
