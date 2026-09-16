@@ -111,10 +111,11 @@ def plan_for(question: str) -> list[PlanStep]:
         )
         return []
 
-    if not completion.plan:
+    raw = completion.tool_arguments.get(PLAN_SHEET_WORK)
+    if not raw:
         return []
 
-    steps = _steps_from(completion.plan)
+    steps = _steps_from(raw)
     if steps:
         _log.info(
             "sheet request split into %d areas: %s",

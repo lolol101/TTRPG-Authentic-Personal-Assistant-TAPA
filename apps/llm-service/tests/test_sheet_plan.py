@@ -14,6 +14,7 @@ import pytest
 
 from app.core import sheet_plan
 from app.core.llm_provider import Completion
+from app.core.tools import PLAN_SHEET_WORK
 
 
 def _planning_completion(areas: list[dict]) -> Completion:
@@ -21,7 +22,7 @@ def _planning_completion(areas: list[dict]) -> Completion:
         text="",
         proposed_changes=[],
         provider="test",
-        plan=json.dumps({"areas": areas}),
+        tool_arguments={PLAN_SHEET_WORK: json.dumps({"areas": areas})},
     )
 
 
@@ -122,7 +123,9 @@ def test_an_unreadable_plan_degrades_to_the_simple_path(monkeypatch, broken) -> 
     monkeypatch.setattr(
         sheet_plan,
         "_ask_for_plan",
-        lambda question: Completion(text="", provider="test", plan=broken),
+        lambda question: Completion(
+            text="", provider="test", tool_arguments={PLAN_SHEET_WORK: broken}
+        ),
     )
 
     assert sheet_plan.plan_for("Собери плута") == []

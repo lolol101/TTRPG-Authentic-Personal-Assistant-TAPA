@@ -50,6 +50,12 @@ class Settings(BaseSettings):
     chroma_collection_prefix: str = "pf2e_actions_ru"
     retrieval_k: int = 5
 
+    # The rulebooks are English; a Russian question finds the right page far
+    # deeper in the results than the same question in English. Costs one
+    # extra completion and one extra embedding per ordinary question — turn
+    # it off to get the single plain search back.
+    retrieval_rewrite_query: bool = True
+
     # What the dialogue may take of the model's window. The rules context is
     # retrieved fresh every turn and is the point of the app, so it is served
     # first; this is the leftover the chat history slides through.

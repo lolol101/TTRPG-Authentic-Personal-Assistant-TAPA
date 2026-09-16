@@ -1,6 +1,7 @@
 """Progress events, so a long request shows what it is doing.
 
-A sheet request now plans, then searches once per area, then generates —
+A sheet request now plans, then searches once per area, then generates; an
+ordinary question is rewritten before it is searched. Either way that is
 seconds of work before the first word of the answer exists. A spinner for
 that says only "still alive"; naming the stage says what is happening and,
 for a split request, how much of it is left.
@@ -49,21 +50,23 @@ def _stub_stream(monkeypatch) -> None:
     monkeypatch.setattr(ask_api, "stream", _fake_stream)
 
 
-def test_a_plain_question_reports_searching_then_generating(monkeypatch) -> None:
+def test_a_plain_question_reports_rewriting_searching_then_generating(monkeypatch) -> None:
     monkeypatch.setattr(ask_api, "retrieve", lambda *a, **k: [_hit("Grapple")])
     monkeypatch.setattr(ask_api, "plan_for", lambda question: [])
+    monkeypatch.setattr(ask_api, "rewrite_for_search", lambda question: "Grapple action")
     _stub_stream(monkeypatch)
 
     events = _events({"question": "Что такое Grapple?"})
     stages = [data["stage"] for name, data in events if name == "stage"]
 
-    assert stages == ["searching", "generating"]
+    assert stages == ["rewriting", "searching", "generating"]
 
 
 def test_a_split_request_names_each_area_as_it_is_searched(monkeypatch) -> None:
     """The point of the indicator: six searches look identical from outside,
     so say which one is running and how many there are."""
     monkeypatch.setattr(ask_api, "retrieve", lambda *a, **k: [_hit("X")])
+    monkeypatch.setattr(ask_api, "rewrite_for_search", lambda question: None)
     monkeypatch.setattr(
         ask_api,
         "plan_for",
@@ -93,6 +96,7 @@ def test_progress_comes_before_the_answer_not_after(monkeypatch) -> None:
     """Arriving after the text would make it a log, not an indicator."""
     monkeypatch.setattr(ask_api, "retrieve", lambda *a, **k: [_hit("Grapple")])
     monkeypatch.setattr(ask_api, "plan_for", lambda question: [])
+    monkeypatch.setattr(ask_api, "rewrite_for_search", lambda question: None)
     _stub_stream(monkeypatch)
 
     names = [name for name, _ in _events({"question": "Что такое Grapple?"})]
@@ -104,6 +108,7 @@ def test_progress_comes_before_the_answer_not_after(monkeypatch) -> None:
 def test_the_answer_still_arrives_unchanged(monkeypatch) -> None:
     monkeypatch.setattr(ask_api, "retrieve", lambda *a, **k: [_hit("Grapple")])
     monkeypatch.setattr(ask_api, "plan_for", lambda question: [])
+    monkeypatch.setattr(ask_api, "rewrite_for_search", lambda question: None)
     _stub_stream(monkeypatch)
 
     events = _events({"question": "Что такое Grapple?"})

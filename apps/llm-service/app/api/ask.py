@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.core.history import FittedHistory, Turn, fit_history, retrieval_query
 from app.core.llm_provider import Completion, LLMNotConfiguredError, complete, stream
 from app.core.prompts import build_ask_messages
+from app.core.query_rewrite import rewrite_for_search
 from app.core.retriever import retrieve
 from app.core.sheet_plan import PlanStep, plan_for
 from app.core.sse import event
@@ -60,25 +61,19 @@ def _memory_of(fitted: FittedHistory) -> Memory:
     )
 
 
-def _retrieve_per_area(payload: AskRequest, steps: list[PlanStep]) -> list[dict]:
-    """One search per area of the sheet the request touches, merged.
+def _collect(retrieved: list[dict], seen: set[str], hits: list[dict]) -> None:
+    """Adds what this search found that earlier searches did not.
 
-    A single k=5 search cannot serve "build me a level 1 rogue": five chunks
-    between them cover neither the ancestry, the class feats nor the gear,
-    and what they miss the model fills in from memory. Areas overlap, so the
-    same page comes back more than once — paying context for it twice buys
-    nothing.
+    A request is now served by several searches — one per area of the sheet,
+    or one per phrasing of the question — and they overlap by design. Paying
+    context for the same page twice buys nothing.
     """
-    merged: list[dict] = []
-    seen: set[str] = set()
-    for step in steps:
-        for hit in retrieve(step.query, payload.k, ruleset=payload.ruleset):
-            key = hit.get("id") or hit["metadata"]["url"]
-            if key in seen:
-                continue
-            seen.add(key)
-            merged.append(hit)
-    return merged
+    for hit in hits:
+        key = hit.get("id") or hit["metadata"]["url"]
+        if key in seen:
+            continue
+        seen.add(key)
+        retrieved.append(hit)
 
 
 def _prepare_with_progress(
@@ -86,10 +81,11 @@ def _prepare_with_progress(
 ) -> Iterator[str]:
     """Retrieval and prompt assembly, announcing each stage as it starts.
 
-    A split sheet request does a planning call and then one search per area
-    before a single word of the answer exists. Yielding the stage turns that
-    silence into something a reader can follow; the assembled prompt comes
-    back as the generator's return value.
+    A split sheet request does a planning call and then one search per area,
+    and an ordinary question is rewritten before it is searched — seconds of
+    work before a single word of the answer exists. Yielding the stage turns
+    that silence into something a reader can follow; the assembled prompt
+    comes back as the generator's return value.
     """
     turns = [Turn(role=message.role, text=message.text) for message in payload.history]
     fitted = fit_history(turns, settings.history_token_budget)
@@ -103,27 +99,33 @@ def _prepare_with_progress(
         steps = plan_for(payload.question)
 
     retrieved: list[dict] = []
+    seen: set[str] = set()
     if steps:
-        seen: set[str] = set()
         for index, step in enumerate(steps, 1):
             yield event(
                 "stage",
                 {"stage": "searching", "area": step.area, "index": index, "total": len(steps)},
             )
-            for hit in retrieve(step.query, payload.k, ruleset=payload.ruleset):
-                key = hit.get("id") or hit["metadata"]["url"]
-                if key in seen:
-                    continue
-                seen.add(key)
-                retrieved.append(hit)
+            _collect(retrieved, seen, retrieve(step.query, payload.k, ruleset=payload.ruleset))
     else:
-        yield event("stage", {"stage": "searching"})
         # Searched against the whole history, not the trimmed part: a follow-up
         # should still find the right rule page even when the turn it leans on
         # has already slid out of the model's window.
-        retrieved = retrieve(
-            retrieval_query(payload.question, turns), payload.k, ruleset=payload.ruleset
-        )
+        query = retrieval_query(payload.question, turns)
+
+        english: str | None = None
+        if settings.retrieval_rewrite_query:
+            yield event("stage", {"stage": "rewriting"})
+            english = rewrite_for_search(query)
+
+        yield event("stage", {"stage": "searching"})
+        # The English phrasing goes first: on this index it is the one that
+        # ranks the answering page in the top few, and the model reads the
+        # front of its context most closely. The question as asked is kept
+        # behind it as the safety net for a rewrite that missed.
+        if english:
+            _collect(retrieved, seen, retrieve(english, payload.k, ruleset=payload.ruleset))
+        _collect(retrieved, seen, retrieve(query, payload.k, ruleset=payload.ruleset))
 
     messages = build_ask_messages(
         payload.question,

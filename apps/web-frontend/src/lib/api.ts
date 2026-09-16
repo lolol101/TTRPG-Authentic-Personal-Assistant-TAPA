@@ -184,12 +184,13 @@ export interface AskDone {
 /**
  * Where the request has got to, before any of the answer exists.
  *
- * A sheet request plans, then searches once per area, then generates — and
- * on a slow provider that is many seconds of nothing. `area` and `index` are
- * present only while searching a split request.
+ * A sheet request plans, then searches once per area, then generates; an
+ * ordinary question is first restated in the rulebooks' language. On a slow
+ * provider that is many seconds of nothing. `area` and `index` are present
+ * only while searching a split request.
  */
 export interface AskStage {
-  stage: 'planning' | 'searching' | 'generating'
+  stage: 'rewriting' | 'planning' | 'searching' | 'generating'
   area?: string
   index?: number
   total?: number
