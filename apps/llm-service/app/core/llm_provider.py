@@ -18,6 +18,7 @@ from app.core.config import settings
 from app.core.text_filter import TextFilter, strip_markup
 from app.core.tools import (
     ASK_CLARIFICATION,
+    PLAN_SHEET_WORK,
     PROPOSE_SHEET_CHANGE,
     parse_change_arguments,
     parse_clarification,
@@ -46,6 +47,10 @@ class Completion:
     provider: str = ""
     """Set when the model asked the player something instead of proposing."""
     clarification: dict[str, Any] | None = None
+    """Raw arguments of a planning call, when one was asked for — see
+    app.core.sheet_plan. Absent for ordinary questions, which is what tells
+    the caller to stay on the single-retrieval path."""
+    plan: str | None = None
 
 
 _clients: dict[str, OpenAI] = {}
@@ -116,18 +121,22 @@ def _complete_once(
 
     changes: list[dict[str, Any]] = []
     clarification: dict[str, Any] | None = None
+    plan: str | None = None
     for call in getattr(choice, "tool_calls", None) or []:
         name = getattr(call.function, "name", None)
         if name == PROPOSE_SHEET_CHANGE:
             changes.extend(parse_change_arguments(call.function.arguments))
         elif name == ASK_CLARIFICATION and clarification is None:
             clarification = parse_clarification(call.function.arguments)
+        elif name == PLAN_SHEET_WORK and plan is None:
+            plan = call.function.arguments
 
     return Completion(
         text=strip_markup(choice.content or ""),
         proposed_changes=changes,
         provider=config.label,
         clarification=clarification,
+        plan=plan,
     )
 
 

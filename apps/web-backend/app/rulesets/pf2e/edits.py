@@ -237,6 +237,12 @@ def _as_int(value: Any, label: str) -> int:
 def _as_text(value: Any, label: str) -> str:
     if value is None:
         return ""
+    # Plainly plural fields — languages, senses, resistances — are one line
+    # here but a list to the model, which offered ["Common", "Elven"] and was
+    # told it had filled the field wrongly. Joining words is faithful; joining
+    # anything richer would turn a wrong shape into plausible junk.
+    if isinstance(value, list) and all(isinstance(item, (str, int, float)) for item in value):
+        value = ", ".join(str(item).strip() for item in value if str(item).strip())
     if isinstance(value, bool) or not isinstance(value, (str, int, float)):
         raise ChangeRejected(f"{label}: ожидался текст, пришло {type(value).__name__}")
     text = str(value).strip()
@@ -504,8 +510,13 @@ def normalize_path(path: str) -> str:
     naming technicality — observed with a small model turning "heal me 20"
     into `sheet_data.hp_max`, which was then silently dropped.
     """
-    if path.startswith(_SHEET_PREFIX) and path[len(_SHEET_PREFIX) :] in COLUMN_FIELDS:
-        return path[len(_SHEET_PREFIX) :]
+    # Text columns need this as much as numeric ones: a sheet-filling answer
+    # wrote sheet_data.ancestry and sheet_data.class_name, and both were
+    # refused as "not editable" though the fields are open — which reads to a
+    # player as a policy rather than a naming miss.
+    bare = path[len(_SHEET_PREFIX) :] if path.startswith(_SHEET_PREFIX) else ""
+    if bare and (bare in COLUMN_FIELDS or bare in TEXT_COLUMNS):
+        return bare
 
     # "sheet_data.perception.rank" for what is stored at
     # "sheet_data.stats.perception.rank". Observed in a real answer; the stat
@@ -518,6 +529,19 @@ def normalize_path(path: str) -> str:
         and parts[2] in _STAT_PARTS
     ):
         return f"sheet_data.stats.{parts[1]}.{parts[2]}"
+
+    # "sheet_data.skills.Acrobatics.rank" — the right idea under a container
+    # that does not exist, with the skill capitalised the way the book prints
+    # it. Both are named unambiguously, so honour the intent. A part that is
+    # not editable (a computed modifier) still falls through and is refused.
+    if (
+        len(parts) == 4
+        and parts[0] == "sheet_data"
+        and parts[1] in ("skills", "stats")
+        and parts[2].lower() in _STAT_KEYS
+        and parts[3] in _STAT_PARTS
+    ):
+        return f"sheet_data.stats.{parts[2].lower()}.{parts[3]}"
 
     return path
 

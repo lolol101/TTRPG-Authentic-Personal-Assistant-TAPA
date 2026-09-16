@@ -183,3 +183,58 @@ def parse_clarification(raw_arguments: str) -> dict[str, Any] | None:
     raw_options = parsed.get("options")
     options = [str(option) for option in raw_options] if isinstance(raw_options, list) else []
     return {"question": question, "options": options[:5]}
+
+
+PLAN_SHEET_WORK = "plan_sheet_work"
+
+SHEET_PLAN_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": PLAN_SHEET_WORK,
+        "description": (
+            "Разбить просьбу изменить лист персонажа на разделы листа, которых "
+            "она касается, чтобы по каждому отдельно найти правила. Вызывай "
+            "ТОЛЬКО если игрок просит менять лист (собрать персонажа, добавить "
+            "снаряжение, выбрать черты, заполнить биографию). На обычный вопрос "
+            "по правилам инструмент не вызывай вовсе."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "areas": {
+                    "type": "array",
+                    "description": "Затронутые разделы, по одному на каждый.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "area": {
+                                "type": "string",
+                                "enum": [
+                                    "ancestry",
+                                    "background",
+                                    "class",
+                                    "skills",
+                                    "feats",
+                                    "equipment",
+                                    "spells",
+                                    "bio",
+                                ],
+                                "description": "Раздел листа.",
+                            },
+                            "query": {
+                                "type": "string",
+                                "description": (
+                                    "Короткий поисковый запрос по правилам для "
+                                    "этого раздела. Лучше по-английски — книги "
+                                    "правил на английском."
+                                ),
+                            },
+                        },
+                        "required": ["area", "query"],
+                    },
+                }
+            },
+            "required": ["areas"],
+        },
+    },
+}

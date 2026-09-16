@@ -10,6 +10,7 @@ import {
   buildPatchFromChanges,
   type AskMemory,
   type AskSource,
+  type AskStage,
   type Chat,
   type Clarification,
   type Character,
@@ -36,6 +37,39 @@ interface Message {
   failed?: boolean
   /** Still arriving — drives the caret and keeps the input disabled. */
   streaming?: boolean
+  /** What the server is doing right now, while there is no answer to show. */
+  stage?: AskStage
+}
+
+/** Sheet areas as the player's own sheet names them. */
+const AREA_LABELS: Record<string, string> = {
+  ancestry: 'происхождению',
+  background: 'предыстории',
+  class: 'классу',
+  skills: 'навыкам',
+  feats: 'чертам',
+  equipment: 'снаряжению',
+  spells: 'заклинаниям',
+  bio: 'биографии',
+}
+
+/**
+ * What to show while the answer does not exist yet.
+ *
+ * A split sheet request runs a planning call and then one search per area,
+ * which is many seconds on a slow provider. Naming the area and counting the
+ * steps turns that wait into something with a visible end.
+ */
+function stageLabel(stage: AskStage | undefined, hasSources: boolean): string {
+  if (!stage) return hasSources ? 'Пишу ответ…' : 'Ищу в правилах…'
+  if (stage.stage === 'planning') return 'Разбираю запрос по разделам листа…'
+  if (stage.stage === 'generating') return 'Пишу ответ…'
+
+  const area = stage.area ? AREA_LABELS[stage.area] ?? stage.area : ''
+  if (area && stage.index && stage.total) {
+    return `Ищу правила по ${area} — ${stage.index} из ${stage.total}…`
+  }
+  return 'Ищу в правилах…'
 }
 
 /** Where the model's memory of this chat begins, as the last answer saw it. */
@@ -220,6 +254,7 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
         token,
         { question: text, chatId: chat.id },
         {
+          onStage: (stage) => patchReply({ stage }),
           onSources: (sources) => patchReply({ sources }),
           onDelta: (piece) => {
             streamed += piece
@@ -431,11 +466,12 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
                     </p>
                   )}
                   {!message.text && (
-                    <p className="text-xs text-muted-foreground">
+                    <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                      {message.streaming && (
+                        <span className="inline-block size-1.5 shrink-0 animate-pulse rounded-full bg-current" />
+                      )}
                       {message.streaming
-                        ? message.sources?.length
-                          ? 'Нашёл источники, пишу ответ…'
-                          : 'Ищу в правилах…'
+                        ? stageLabel(message.stage, Boolean(message.sources?.length))
                         : // A model may answer a sheet request purely with a tool
                           // call and no prose; an empty bubble would look broken.
                           message.changes?.length
