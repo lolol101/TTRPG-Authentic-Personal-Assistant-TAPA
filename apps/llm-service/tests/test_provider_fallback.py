@@ -2,7 +2,7 @@
 
 import httpx
 import pytest
-from openai import APIConnectionError, BadRequestError
+from openai import APIConnectionError, BadRequestError, RateLimitError
 
 from app.core import llm_provider
 from app.core.config import settings
@@ -143,6 +143,27 @@ def test_a_response_without_choices_fails_over_instead_of_crashing(monkeypatch) 
     assert tried == ["local", "cloud"]
     assert completion.text == "из облака"
     assert completion.provider == "cloud"
+
+
+def test_a_rate_limited_provider_hands_over_to_the_fallback(monkeypatch) -> None:
+    """Measured on the free endpoint: enough questions in a row and it starts
+    answering 429 for minutes. That is "not me, not now" — the case the
+    fallback exists for — but it used to surface as an error to the player.
+    """
+    _configure(monkeypatch)
+    tried: list[str] = []
+
+    def _fake_once(config, message, tools):
+        tried.append(config.label)
+        if config.label == "local":
+            response = httpx.Response(429, request=httpx.Request("POST", "http://x"))
+            raise RateLimitError(message="slow down", response=response, body=None)
+        return llm_provider.Completion(text="из облака", provider=config.label)
+
+    monkeypatch.setattr(llm_provider, "_complete_once", _fake_once)
+
+    assert llm_provider.complete([{"role": "user", "content": "вопрос"}]).provider == "cloud"
+    assert tried == ["local", "cloud"]
 
 
 def test_raises_when_every_provider_is_down(monkeypatch) -> None:

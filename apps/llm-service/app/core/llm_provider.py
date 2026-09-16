@@ -6,7 +6,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
-from openai import APIConnectionError, APITimeoutError, InternalServerError, OpenAI
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    OpenAI,
+    RateLimitError,
+)
 
 from app.core.config import settings
 from app.core.text_filter import TextFilter, strip_markup
@@ -47,7 +53,14 @@ _clients: dict[str, OpenAI] = {}
 #: Errors that mean "this provider is unreachable right now", as opposed to
 #: "this request is wrong". Only the former is worth retrying elsewhere —
 #: falling back on a bad request would just hide the bug behind a second bill.
-_FAILOVER_ERRORS = (APIConnectionError, APITimeoutError, InternalServerError)
+#: A rate limit belongs here: the free endpoint refuses whole minutes at a
+#: time, and "come back later" is precisely what the fallback answers.
+_FAILOVER_ERRORS = (
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    RateLimitError,
+)
 
 
 def providers() -> list[ProviderConfig]:
