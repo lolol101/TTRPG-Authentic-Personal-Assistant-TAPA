@@ -82,11 +82,13 @@ function App() {
     setOpenCharacter(fresh)
   }
 
-  async function handleDelete() {
-    if (!token || !openCharacter) return
-    await api.deleteCharacter(token, openCharacter.id)
-    setCharacters((current) => current.filter((c) => c.id !== openCharacter.id))
-    setOpenCharacter(null)
+  async function handleDelete(character: Character) {
+    if (!token) return
+    await api.deleteCharacter(token, character.id)
+    setCharacters((current) => current.filter((c) => c.id !== character.id))
+    // Only clears the open sheet when it was the one just deleted — deleting
+    // from the list must not kick the player out of an unrelated sheet.
+    setOpenCharacter((current) => (current?.id === character.id ? null : current))
   }
 
   if (!token) return <AuthPanel onLoggedIn={handleLoggedIn} />
@@ -122,7 +124,11 @@ function App() {
                 character={openCharacter}
                 token={token}
                 onSave={handleSave}
-                onDelete={handleDelete}
+                onDelete={() => {
+                  if (!window.confirm(`Удалить персонажа «${openCharacter.name}»? Это необратимо.`))
+                    return Promise.resolve()
+                  return handleDelete(openCharacter)
+                }}
                 onBack={() => setOpenCharacter(null)}
                 onReload={handleReload}
               />
@@ -141,6 +147,7 @@ function App() {
               characters={characters}
               onOpen={setOpenCharacter}
               onCreate={handleCreate}
+              onDelete={handleDelete}
             />
           )}
         </TabsContent>
