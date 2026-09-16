@@ -449,3 +449,95 @@ def test_a_stat_path_missing_its_stats_segment_is_understood() -> None:
 
 def test_normalisation_does_not_invent_a_stat() -> None:
     assert normalize_path("sheet_data.cooking.rank") == "sheet_data.cooking.rank"
+
+
+def test_a_text_column_the_model_prefixed_with_sheet_data_is_understood() -> None:
+    """Observed live: a character build wrote sheet_data.ancestry,
+    sheet_data.background and sheet_data.class_name — the same shortcut
+    already forgiven for hp_current, just for the text columns instead of
+    the numeric ones."""
+    assert normalize_path("sheet_data.ancestry") == "ancestry"
+    assert normalize_path("sheet_data.background") == "background"
+    assert normalize_path("sheet_data.class_name") == "class_name"
+
+
+def test_an_ability_modifier_nested_under_stats_is_understood() -> None:
+    """Observed live: sheet_data.stats.dex_mod for what is the typed column
+    dex_mod. The model reused the "stats." prefix it saw work for skills."""
+    for ability in ("str", "dex", "con", "int", "wis", "cha"):
+        assert normalize_path(f"sheet_data.stats.{ability}_mod") == f"{ability}_mod"
+
+
+def test_a_skill_rank_under_the_wrong_group_name_is_understood() -> None:
+    """Observed live: sheet_data.skills.acrobatics.rank for what lives at
+    sheet_data.stats.acrobatics.rank — "skills" reads as the obvious folder
+    name and is not the one the sheet actually uses."""
+    assert normalize_path("sheet_data.skills.acrobatics.rank") == "sheet_data.stats.acrobatics.rank"
+
+
+def test_a_save_rank_under_the_wrong_group_name_is_understood() -> None:
+    """Observed live: sheet_data.saving_throws.fortitude.rank for what lives
+    at sheet_data.stats.fortitude.rank."""
+    assert (
+        normalize_path("sheet_data.saving_throws.fortitude.rank")
+        == "sheet_data.stats.fortitude.rank"
+    )
+
+
+def test_a_group_alias_does_not_invent_a_stat() -> None:
+    """The alias only forgives the folder name — an unknown stat must still
+    fall through to resolve_change and be refused there, not be silently
+    accepted."""
+    assert normalize_path("sheet_data.skills.cooking.rank") == "sheet_data.skills.cooking.rank"
+
+
+def test_a_group_alias_still_lets_an_unknown_part_be_refused_specifically() -> None:
+    """The part after a real stat is not checked by the alias itself: it is
+    rewritten to sheet_data.stats.<stat>.modifier and refused there, with a
+    message about "modifier" rather than a generic path-not-found."""
+    assert (
+        normalize_path("sheet_data.skills.acrobatics.modifier")
+        == "sheet_data.stats.acrobatics.modifier"
+    )
+
+
+def test_a_modifier_written_directly_is_refused_not_silently_dropped() -> None:
+    """The displayed modifier is computed from rank, item and temporary — not
+    a field of its own. A model that tries to set it directly (observed live,
+    for both skills and saves) must be told why, not just "path unavailable"."""
+    with pytest.raises(ChangeRejected, match="нельзя менять"):
+        resolve_change(
+            _character(),
+            ProposedChange(path="sheet_data.skills.acrobatics.modifier", value=6),
+        )
+    with pytest.raises(ChangeRejected, match="нельзя менять"):
+        resolve_change(
+            _character(),
+            ProposedChange(path="sheet_data.saving_throws.fortitude.modifier", value=6),
+        )
+
+
+def test_the_rogue_build_from_the_field_report_goes_through() -> None:
+    """A compact version of the exact proposal that triggered this fix: every
+    path here was rejected before normalize_path learned these three shapes."""
+    resolved, rejected = resolve_changes(
+        _character(level=1, sheet_data={}),
+        [
+            ProposedChange(path="sheet_data.ancestry", value="Человек"),
+            ProposedChange(path="sheet_data.background", value="Pathfinder Recruiter"),
+            ProposedChange(path="sheet_data.class_name", value="Плут"),
+            ProposedChange(path="sheet_data.stats.dex_mod", value=4),
+            ProposedChange(path="sheet_data.skills.acrobatics.rank", value="trained"),
+            ProposedChange(path="sheet_data.saving_throws.reflex.rank", value="trained"),
+        ],
+    )
+
+    assert rejected == []
+    assert {change.path for change in resolved} == {
+        "ancestry",
+        "background",
+        "class_name",
+        "dex_mod",
+        "sheet_data.stats.acrobatics.rank",
+        "sheet_data.stats.reflex.rank",
+    }

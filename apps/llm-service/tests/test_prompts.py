@@ -1,5 +1,5 @@
 from app.core.history import Turn
-from app.core.prompts import build_ask_messages
+from app.core.prompts import build_ask_messages, build_system_prompt
 
 
 def _flatten(messages: list[dict]) -> str:
@@ -93,6 +93,20 @@ def test_history_is_marked_as_memory_rather_than_a_source_of_rules() -> None:
 
 def test_nothing_is_said_about_history_when_there_is_none() -> None:
     assert "предыдущие сообщения" not in _system(build_ask_messages("вопрос", []))
+
+
+def test_edit_instructions_discourage_asking_for_confirmation_in_prose() -> None:
+    """Observed live: a build request got a "Согласовать?" reply in text
+    instead of a propose_sheet_change call — the player already confirms
+    every proposal in the UI, so that question is friction, not caution."""
+    prompt = build_system_prompt("Персонаж: Рэм", allow_sheet_edits=True)
+
+    assert "не спрашивай разрешения" in prompt
+    assert "ask_clarifying_question" in prompt
+
+
+def test_edit_instructions_are_absent_without_a_character() -> None:
+    assert "propose_sheet_change" not in build_system_prompt(allow_sheet_edits=True)
 
 
 def test_the_rules_context_stays_next_to_the_question_it_was_found_for() -> None:

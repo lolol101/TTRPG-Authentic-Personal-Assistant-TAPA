@@ -494,6 +494,12 @@ def _resolve_sheet(character: Character, change: ProposedChange) -> ResolvedChan
 
 _SHEET_PREFIX = "sheet_data."
 
+#: Group names a model reaches for instead of the sheet's actual "stats" —
+#: observed live: a build request wrote sheet_data.skills.acrobatics.rank
+#: and sheet_data.saving_throws.fortitude.rank, both readable intent, both
+#: rejected on the name of a folder that does not exist.
+_STAT_GROUP_ALIASES = {"skills", "saving_throws", "saves"}
+
 
 def normalize_path(path: str) -> str:
     """Accepts the near-miss paths models actually produce.
@@ -504,13 +510,16 @@ def normalize_path(path: str) -> str:
     naming technicality — observed with a small model turning "heal me 20"
     into `sheet_data.hp_max`, which was then silently dropped.
     """
-    if path.startswith(_SHEET_PREFIX) and path[len(_SHEET_PREFIX) :] in COLUMN_FIELDS:
-        return path[len(_SHEET_PREFIX) :]
+    if path.startswith(_SHEET_PREFIX):
+        bare = path[len(_SHEET_PREFIX) :]
+        if bare in COLUMN_FIELDS or bare in TEXT_COLUMNS:
+            return bare
+
+    parts = path.split(".")
 
     # "sheet_data.perception.rank" for what is stored at
     # "sheet_data.stats.perception.rank". Observed in a real answer; the stat
     # is named and the part is named, so the intent is not in doubt.
-    parts = path.split(".")
     if (
         len(parts) == 3
         and parts[0] == "sheet_data"
@@ -518,6 +527,31 @@ def normalize_path(path: str) -> str:
         and parts[2] in _STAT_PARTS
     ):
         return f"sheet_data.stats.{parts[1]}.{parts[2]}"
+
+    # "sheet_data.skills.acrobatics.rank" / "sheet_data.saving_throws.
+    # fortitude.rank" for the same place, reached with a folder name that
+    # sounds right but is not the one the sheet actually uses. The stat has
+    # to be real, but the part is not checked here on purpose: a model that
+    # tried "modifier" instead of "rank" still deserves resolve_change's
+    # specific "нельзя менять" answer, not a generic path-not-found.
+    if (
+        len(parts) == 4
+        and parts[0] == "sheet_data"
+        and parts[1] in _STAT_GROUP_ALIASES
+        and parts[2] in _STAT_KEYS
+    ):
+        return f"sheet_data.stats.{parts[2]}.{parts[3]}"
+
+    # "sheet_data.stats.dex_mod" for the ability modifier itself, which is a
+    # typed column and lives outside sheet_data entirely — the model treated
+    # "stats." as a generic prefix for anything characteristic-shaped.
+    if (
+        len(parts) == 3
+        and parts[0] == "sheet_data"
+        and parts[1] == "stats"
+        and parts[2] in COLUMN_FIELDS
+    ):
+        return parts[2]
 
     return path
 
