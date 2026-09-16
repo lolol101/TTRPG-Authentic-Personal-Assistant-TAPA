@@ -6,7 +6,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
-from openai import APIConnectionError, APITimeoutError, InternalServerError, OpenAI
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    OpenAI,
+    RateLimitError,
+)
 
 from app.core import gigachat
 from app.core.config import settings
@@ -68,7 +74,14 @@ _clients: dict[str, OpenAI] = {}
 #: Errors that mean "this provider is unreachable right now", as opposed to
 #: "this request is wrong". Only the former is worth retrying elsewhere —
 #: falling back on a bad request would just hide the bug behind a second bill.
-_FAILOVER_ERRORS = (APIConnectionError, APITimeoutError, InternalServerError)
+#: A rate limit belongs here: the free endpoint refuses whole minutes at a
+#: time, and "come back later" is precisely what the fallback answers.
+_FAILOVER_ERRORS = (
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    RateLimitError,
+)
 
 
 def _ca_bundle_for(dialect: str, configured: str) -> str:
@@ -197,7 +210,20 @@ def _complete_once(
 
     client = _client_for(config)
     response = client.chat.completions.create(**request)
-    choice = response.choices[0].message
+
+    # A provider under load can answer 200 with an error body the client
+    # still parses, leaving choices None. Indexing that crashed the request
+    # with a TypeError, which is not a failover error — so the configured
+    # fallback was never tried in the one situation it exists for.
+    choices = getattr(response, "choices", None)
+    if not choices:
+        raise InternalServerError(
+            f"{config.label} returned no choices",
+            response=httpx.Response(502, request=httpx.Request("POST", config.base_url)),
+            body=None,
+        )
+
+    choice = choices[0].message
 
     changes: list[dict[str, Any]] = []
     clarification: dict[str, Any] | None = None
