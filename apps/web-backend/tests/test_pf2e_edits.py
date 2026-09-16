@@ -461,6 +461,16 @@ def test_a_text_column_the_model_prefixed_with_sheet_data_is_understood() -> Non
     assert normalize_path("sheet_data.class_name") == "class_name"
 
 
+def test_a_text_column_under_the_sheet_prefix_is_understood() -> None:
+    """Observed filling a sheet: the model wrote sheet_data.ancestry and
+    sheet_data.class_name, and both were refused as "not editable" although
+    those fields are open — the prefix was only stripped for numeric columns.
+    The refusal read as a policy when it was a naming miss."""
+    assert normalize_path("sheet_data.ancestry") == "ancestry"
+    assert normalize_path("sheet_data.class_name") == "class_name"
+    assert normalize_path("sheet_data.name") == "name"
+
+
 def test_an_ability_modifier_nested_under_stats_is_understood() -> None:
     """Observed live: sheet_data.stats.dex_mod for what is the typed column
     dex_mod. The model reused the "stats." prefix it saw work for skills."""
@@ -482,6 +492,17 @@ def test_a_save_rank_under_the_wrong_group_name_is_understood() -> None:
         normalize_path("sheet_data.saving_throws.fortitude.rank")
         == "sheet_data.stats.fortitude.rank"
     )
+
+
+def test_a_skill_written_under_a_skills_container_is_understood() -> None:
+    """Also observed: sheet_data.skills.Acrobatics.rank. Ranks are editable,
+    but they live under stats, and the model capitalised the name."""
+    assert normalize_path("sheet_data.skills.Acrobatics.rank") == "sheet_data.stats.acrobatics.rank"
+    assert normalize_path("sheet_data.skills.stealth.rank") == "sheet_data.stats.stealth.rank"
+
+
+def test_the_skills_container_does_not_invent_a_skill() -> None:
+    assert normalize_path("sheet_data.skills.Juggling.rank") == "sheet_data.skills.Juggling.rank"
 
 
 def test_a_group_alias_does_not_invent_a_stat() -> None:
@@ -541,3 +562,48 @@ def test_the_rogue_build_from_the_field_report_goes_through() -> None:
         "sheet_data.stats.acrobatics.rank",
         "sheet_data.stats.reflex.rank",
     }
+
+
+def test_a_list_of_languages_is_accepted_as_a_list_of_words() -> None:
+    """The sheet stores languages as one line, and the model offered
+    ["Common", "Elven"] — a reasonable shape for a plainly plural field.
+    Refusing it made the assistant look unable to fill a field it had in
+    fact filled correctly."""
+    character = _character()
+
+    resolved, rejected = resolve_changes(
+        character,
+        [ProposedChange(path="sheet_data.languages", value=["Common", "Elven"])],
+    )
+
+    assert rejected == []
+    assert resolved[0].value == "Common, Elven"
+
+
+def test_a_list_of_objects_is_still_not_a_line_of_text() -> None:
+    """Joining anything at all would turn a wrong shape into plausible junk."""
+    character = _character()
+
+    _, rejected = resolve_changes(
+        character,
+        [ProposedChange(path="sheet_data.languages", value=[{"name": "Common"}])],
+    )
+
+    assert rejected
+
+
+def test_a_computed_modifier_is_still_refused() -> None:
+    """A modifier is derived from rank, ability and level. Accepting one
+    directly would let the sheet disagree with its own arithmetic, so this
+    stays refused even once the path is understood — normalize_path now
+    resolves the container and the capitalised skill (that part is no
+    longer in doubt), and resolve_change refuses the field it names."""
+    assert (
+        normalize_path("sheet_data.skills.Acrobatics.modifier")
+        == "sheet_data.stats.acrobatics.modifier"
+    )
+    with pytest.raises(ChangeRejected, match="нельзя менять"):
+        resolve_change(
+            _character(),
+            ProposedChange(path="sheet_data.skills.Acrobatics.modifier", value=6),
+        )

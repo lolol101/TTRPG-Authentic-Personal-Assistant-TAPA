@@ -7,6 +7,9 @@ from app.core.config import settings
 def test_get_completion_raises_when_api_key_missing(monkeypatch) -> None:
     monkeypatch.setattr(settings, "llm_api_key", "")
     monkeypatch.setattr(settings, "llm_fallback_api_key", "")
+    # A provider can also be configured by credentials rather than a key.
+    monkeypatch.setattr(settings, "llm_auth_key", "")
+    monkeypatch.setattr(settings, "llm_fallback_auth_key", "")
     llm_provider._clients.clear()
 
     with pytest.raises(llm_provider.LLMNotConfiguredError):

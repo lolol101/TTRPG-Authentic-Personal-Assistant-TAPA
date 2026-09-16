@@ -1,3 +1,4 @@
+import { X } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -10,12 +11,29 @@ interface Props {
   characters: Character[]
   onOpen: (character: Character) => void
   onCreate: (name: string, ruleset: string) => Promise<void>
+  onDelete: (character: Character) => Promise<void>
 }
 
-export function CharacterList({ characters, onOpen, onCreate }: Props) {
+export function CharacterList({ characters, onOpen, onCreate, onDelete }: Props) {
   const [name, setName] = useState('')
   const [ruleset, setRuleset] = useState(DEFAULT_RULESET)
   const [creating, setCreating] = useState(false)
+  /** Id of the character currently being deleted — guards against a second
+   * click while the request is in flight. */
+  const [deletingId, setDeletingId] = useState<number | null>(null)
+
+  async function handleDelete(event: React.MouseEvent, character: Character) {
+    // The card itself opens the character; the delete button sits on top of
+    // it and must not also trigger that.
+    event.stopPropagation()
+    if (!window.confirm(`Удалить персонажа «${character.name}»? Это необратимо.`)) return
+    setDeletingId(character.id)
+    try {
+      await onDelete(character)
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   async function handleCreate(event: React.FormEvent) {
     event.preventDefault()
@@ -86,9 +104,18 @@ export function CharacterList({ characters, onOpen, onCreate }: Props) {
           {characters.map((character) => (
             <Card
               key={character.id}
-              className="cursor-pointer transition-colors hover:bg-muted/50"
+              className="relative cursor-pointer transition-colors hover:bg-muted/50"
               onClick={() => onOpen(character)}
             >
+              <button
+                type="button"
+                aria-label={`Удалить персонажа ${character.name}`}
+                onClick={(event) => void handleDelete(event, character)}
+                disabled={deletingId === character.id}
+                className="absolute right-2 top-2 rounded p-1 text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground disabled:opacity-50"
+              >
+                <X className="size-4" />
+              </button>
               <CardHeader>
                 <CardTitle className="font-heading text-xl font-normal">
                   {character.name}

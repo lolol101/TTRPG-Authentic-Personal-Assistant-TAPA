@@ -237,6 +237,12 @@ def _as_int(value: Any, label: str) -> int:
 def _as_text(value: Any, label: str) -> str:
     if value is None:
         return ""
+    # Plainly plural fields — languages, senses, resistances — are one line
+    # here but a list to the model, which offered ["Common", "Elven"] and was
+    # told it had filled the field wrongly. Joining words is faithful; joining
+    # anything richer would turn a wrong shape into plausible junk.
+    if isinstance(value, list) and all(isinstance(item, (str, int, float)) for item in value):
+        value = ", ".join(str(item).strip() for item in value if str(item).strip())
     if isinstance(value, bool) or not isinstance(value, (str, int, float)):
         raise ChangeRejected(f"{label}: ожидался текст, пришло {type(value).__name__}")
     text = str(value).strip()
@@ -497,8 +503,11 @@ _SHEET_PREFIX = "sheet_data."
 #: Group names a model reaches for instead of the sheet's actual "stats" —
 #: observed live: a build request wrote sheet_data.skills.acrobatics.rank
 #: and sheet_data.saving_throws.fortitude.rank, both readable intent, both
-#: rejected on the name of a folder that does not exist.
-_STAT_GROUP_ALIASES = {"skills", "saving_throws", "saves"}
+#: rejected on the name of a folder that does not exist. "stats" itself is
+#: here too: it is the right name, just paired with a capitalised skill
+#: (sheet_data.stats.Acrobatics.rank) that the exact-case 3-part match above
+#: does not catch.
+_STAT_GROUP_ALIASES = {"skills", "saving_throws", "saves", "stats"}
 
 
 def normalize_path(path: str) -> str:
@@ -510,10 +519,13 @@ def normalize_path(path: str) -> str:
     naming technicality — observed with a small model turning "heal me 20"
     into `sheet_data.hp_max`, which was then silently dropped.
     """
-    if path.startswith(_SHEET_PREFIX):
-        bare = path[len(_SHEET_PREFIX) :]
-        if bare in COLUMN_FIELDS or bare in TEXT_COLUMNS:
-            return bare
+    # Text columns need this as much as numeric ones: a sheet-filling answer
+    # wrote sheet_data.ancestry and sheet_data.class_name, and both were
+    # refused as "not editable" though the fields are open — which reads to a
+    # player as a policy rather than a naming miss.
+    bare = path[len(_SHEET_PREFIX) :] if path.startswith(_SHEET_PREFIX) else ""
+    if bare and (bare in COLUMN_FIELDS or bare in TEXT_COLUMNS):
+        return bare
 
     parts = path.split(".")
 
@@ -529,18 +541,20 @@ def normalize_path(path: str) -> str:
         return f"sheet_data.stats.{parts[1]}.{parts[2]}"
 
     # "sheet_data.skills.acrobatics.rank" / "sheet_data.saving_throws.
-    # fortitude.rank" for the same place, reached with a folder name that
-    # sounds right but is not the one the sheet actually uses. The stat has
-    # to be real, but the part is not checked here on purpose: a model that
-    # tried "modifier" instead of "rank" still deserves resolve_change's
-    # specific "нельзя менять" answer, not a generic path-not-found.
+    # fortitude.rank" / "sheet_data.stats.Acrobatics.rank" for the same
+    # place, reached with a folder name that sounds right but is not the one
+    # the sheet actually uses, or with the skill capitalised the way the
+    # book prints it. The stat has to be real once case-folded, but the part
+    # is not checked here on purpose: a model that tried "modifier" instead
+    # of "rank" still deserves resolve_change's specific "нельзя менять"
+    # answer, not a generic path-not-found.
     if (
         len(parts) == 4
         and parts[0] == "sheet_data"
         and parts[1] in _STAT_GROUP_ALIASES
-        and parts[2] in _STAT_KEYS
+        and parts[2].lower() in _STAT_KEYS
     ):
-        return f"sheet_data.stats.{parts[2]}.{parts[3]}"
+        return f"sheet_data.stats.{parts[2].lower()}.{parts[3]}"
 
     # "sheet_data.stats.dex_mod" for the ability modifier itself, which is a
     # typed column and lives outside sheet_data entirely — the model treated
