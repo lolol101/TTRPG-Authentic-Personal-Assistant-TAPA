@@ -500,6 +500,15 @@ def _resolve_sheet(character: Character, change: ProposedChange) -> ResolvedChan
 
 _SHEET_PREFIX = "sheet_data."
 
+#: Group names a model reaches for instead of the sheet's actual "stats" —
+#: observed live: a build request wrote sheet_data.skills.acrobatics.rank
+#: and sheet_data.saving_throws.fortitude.rank, both readable intent, both
+#: rejected on the name of a folder that does not exist. "stats" itself is
+#: here too: it is the right name, just paired with a capitalised skill
+#: (sheet_data.stats.Acrobatics.rank) that the exact-case 3-part match above
+#: does not catch.
+_STAT_GROUP_ALIASES = {"skills", "saving_throws", "saves", "stats"}
+
 
 def normalize_path(path: str) -> str:
     """Accepts the near-miss paths models actually produce.
@@ -518,10 +527,11 @@ def normalize_path(path: str) -> str:
     if bare and (bare in COLUMN_FIELDS or bare in TEXT_COLUMNS):
         return bare
 
+    parts = path.split(".")
+
     # "sheet_data.perception.rank" for what is stored at
     # "sheet_data.stats.perception.rank". Observed in a real answer; the stat
     # is named and the part is named, so the intent is not in doubt.
-    parts = path.split(".")
     if (
         len(parts) == 3
         and parts[0] == "sheet_data"
@@ -530,18 +540,32 @@ def normalize_path(path: str) -> str:
     ):
         return f"sheet_data.stats.{parts[1]}.{parts[2]}"
 
-    # "sheet_data.skills.Acrobatics.rank" — the right idea under a container
-    # that does not exist, with the skill capitalised the way the book prints
-    # it. Both are named unambiguously, so honour the intent. A part that is
-    # not editable (a computed modifier) still falls through and is refused.
+    # "sheet_data.skills.acrobatics.rank" / "sheet_data.saving_throws.
+    # fortitude.rank" / "sheet_data.stats.Acrobatics.rank" for the same
+    # place, reached with a folder name that sounds right but is not the one
+    # the sheet actually uses, or with the skill capitalised the way the
+    # book prints it. The stat has to be real once case-folded, but the part
+    # is not checked here on purpose: a model that tried "modifier" instead
+    # of "rank" still deserves resolve_change's specific "нельзя менять"
+    # answer, not a generic path-not-found.
     if (
         len(parts) == 4
         and parts[0] == "sheet_data"
-        and parts[1] in ("skills", "stats")
+        and parts[1] in _STAT_GROUP_ALIASES
         and parts[2].lower() in _STAT_KEYS
-        and parts[3] in _STAT_PARTS
     ):
         return f"sheet_data.stats.{parts[2].lower()}.{parts[3]}"
+
+    # "sheet_data.stats.dex_mod" for the ability modifier itself, which is a
+    # typed column and lives outside sheet_data entirely — the model treated
+    # "stats." as a generic prefix for anything characteristic-shaped.
+    if (
+        len(parts) == 3
+        and parts[0] == "sheet_data"
+        and parts[1] == "stats"
+        and parts[2] in COLUMN_FIELDS
+    ):
+        return parts[2]
 
     return path
 
