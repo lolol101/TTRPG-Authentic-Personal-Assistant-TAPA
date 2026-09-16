@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     max_message_chars: int = 4000
     max_snapshots_per_character: int = 20
 
+    # Where the built frontend lives. Empty means the sibling web-frontend's
+    # dist/, which is what a plain checkout has; set it when the build is
+    # deployed somewhere else. Missing build = API only, see core/frontend.py.
+    frontend_dist_dir: str = ""
+
     llm_service_url: str = "http://localhost:8100"
     # A local 14B on the GPU thinks longer than a hosted model did.
     llm_request_timeout_seconds: float = 300.0
