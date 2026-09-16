@@ -6,11 +6,17 @@ from app.core.config import settings
 from app.models import Chunk, ParsedPage
 
 
-def chunk_page(page: ParsedPage, max_chars: int | None = None) -> list[Chunk]:
+def chunk_page(
+    page: ParsedPage, max_chars: int | None = None, language: str = "ru"
+) -> list[Chunk]:
     """Turn one parsed page into one or more retrievable chunks.
 
     Most pf2.ru action pages are short and produce exactly one chunk; longer
     pages are split on paragraph breaks so no chunk exceeds *max_chars*.
+
+    *language* rides along into the index because the corpus is no longer
+    single-language: pf2.ru is Russian, the Foundry packs are English, and an
+    answer's language should be explicable from the chunk it came from.
     """
     max_chars = max_chars or settings.max_chunk_chars
     parts = _split_on_paragraphs(page.body, max_chars) or [page.body]
@@ -25,6 +31,7 @@ def chunk_page(page: ParsedPage, max_chars: int | None = None) -> list[Chunk]:
             title=page.title,
             source_book=page.source_book,
             traits=list(page.traits),
+            language=language,
             text=part,
         )
         for index, part in enumerate(parts)
