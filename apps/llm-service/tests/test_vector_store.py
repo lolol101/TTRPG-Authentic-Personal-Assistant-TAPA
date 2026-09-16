@@ -1,3 +1,4 @@
+import chromadb.errors
 import pytest
 
 from app.core import vector_store
@@ -52,6 +53,91 @@ def test_query_respects_k() -> None:
 
     assert len(results) == 2
     assert {r["id"] for r in results} == {"a", "b"}
+
+
+def test_a_stale_collection_handle_is_reopened_instead_of_failing() -> None:
+    """A long-lived service holds its collection handle for the life of the
+    process, and another process re-indexing underneath it makes that handle
+    stale: Chroma then answers filtered queries with "Error finding id".
+
+    Measured, not hypothesised: during a bulk re-index every sheet-bound
+    question returned 500, while the same query from a fresh process worked
+    20 times out of 20, and a restarted service worked twice before failing
+    again. Retrying once on a fresh handle is what makes a re-index survivable.
+    """
+    vector_store.upsert(
+        ids=["a"],
+        embeddings=[[1.0, 0.0]],
+        documents=["doc a"],
+        metadatas=[{"title": "A"}],
+    )
+    live = vector_store.get_collection()
+    calls = {"n": 0}
+    real_query = live.query
+
+    def _stale_once(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise chromadb.errors.InternalError(
+                "Error executing plan: Internal error: Error finding id"
+            )
+        return real_query(*args, **kwargs)
+
+    live.query = _stale_once  # type: ignore[method-assign]
+
+    results = vector_store.query([1.0, 0.0], k=1)
+
+    assert calls["n"] == 1, "the retry must go through a freshly opened handle"
+    assert results[0]["id"] == "a"
+
+
+def test_it_survives_going_stale_twice_in_a_row() -> None:
+    """One reopen left about one question in eight still failing under a
+    live ingest — the store can go stale again between the reopen and the
+    retry."""
+    vector_store.upsert(
+        ids=["a"], embeddings=[[1.0, 0.0]], documents=["doc a"], metadatas=[{"title": "A"}]
+    )
+    calls = {"n": 0}
+    real_query = vector_store.get_collection().query
+
+    def _stale_twice(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise chromadb.errors.InternalError("Error finding id")
+        return real_query(*args, **kwargs)
+
+    def _patched_get_collection():
+        collection = _real_get_collection()
+        collection.query = _stale_twice  # type: ignore[method-assign]
+        return collection
+
+    _real_get_collection = vector_store.get_collection
+    vector_store.get_collection = _patched_get_collection  # type: ignore[assignment]
+    try:
+        results = vector_store.query([1.0, 0.0], k=1)
+    finally:
+        vector_store.get_collection = _real_get_collection  # type: ignore[assignment]
+
+    assert calls["n"] == 3
+    assert results[0]["id"] == "a"
+
+
+def test_an_unrelated_chroma_error_is_not_swallowed() -> None:
+    """Retrying every failure would turn a real fault into a silent empty
+    answer, which reads to a player as "the rules do not say"."""
+    vector_store.upsert(
+        ids=["a"], embeddings=[[1.0, 0.0]], documents=["doc a"], metadatas=[{"title": "A"}]
+    )
+    live = vector_store.get_collection()
+
+    def _always_broken(*args, **kwargs):
+        raise ValueError("collection schema mismatch")
+
+    live.query = _always_broken  # type: ignore[method-assign]
+
+    with pytest.raises(ValueError):
+        vector_store.query([1.0, 0.0], k=1)
 
 
 def test_upsert_overwrites_existing_id() -> None:
