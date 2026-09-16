@@ -77,12 +77,17 @@ def build_ask_messages(
     character_context: str | None = None,
     allow_sheet_edits: bool = False,
     history: list[Turn] | None = None,
+    retry_feedback: str | None = None,
 ) -> list[dict[str, Any]]:
     """Instructions, then the remembered turns, then this question.
 
     The retrieved rules travel with the question rather than sitting in the
     system message: they were retrieved for *this* question, and putting them
     above the dialogue invites the model to answer an earlier one with them.
+
+    retry_feedback replaces the question turn instead of following it: this
+    is web-backend reporting what its validator did with the model's last
+    proposal, not a new question, so no rules context is attached to it.
     """
     history = history or []
 
@@ -95,6 +100,11 @@ def build_ask_messages(
         }
     ]
     messages.extend({"role": turn.role, "content": turn.text} for turn in history)
+
+    if retry_feedback is not None:
+        messages.append({"role": "user", "content": retry_feedback})
+        return messages
+
     messages.append(
         {
             "role": "user",

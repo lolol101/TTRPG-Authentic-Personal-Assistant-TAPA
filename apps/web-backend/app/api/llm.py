@@ -77,6 +77,90 @@ def _check_proposals(
     ], rejected
 
 
+def _retry_feedback_text(resolved: list[dict], rejected: list[str]) -> str:
+    """What to tell the model about its last proposal, in its own words.
+
+    Written for the model to read, not the player: names exactly what
+    survived so a corrected reply does not have to guess, and spells out
+    that this is a correction, not a critique to argue with.
+    """
+    lines = ["Код проверил предложенные изменения листа."]
+    if resolved:
+        lines.append("Принято без вопросов:")
+        lines.extend(f"- {change['path']} = {change['value']!r}" for change in resolved)
+    lines.append("Отклонено кодом:")
+    lines.extend(f"- {reason}" for reason in rejected)
+    lines.append(
+        "Пришли исправленный список изменений целиком тем же вызовом "
+        "propose_sheet_change — всё, что должно остаться в силе, а не "
+        "только отклонённое. Если отклонённое было ошибкой не в пути, а "
+        "в самом факте изменения, просто не включай его снова."
+    )
+    return "\n".join(lines)
+
+
+def _ask_llm_service(body: dict) -> dict:
+    try:
+        response = httpx.post(
+            f"{settings.llm_service_url}/ask",
+            json=body,
+            timeout=settings.llm_request_timeout_seconds,
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"llm-service unreachable: {exc}",
+        ) from exc
+
+    if response.status_code >= 400:
+        raise HTTPException(status_code=response.status_code, detail=response.text)
+
+    return response.json()
+
+
+def _retry_with_feedback(
+    payload: AskRequest,
+    conversation: _Conversation,
+    *,
+    first_answer: str,
+    resolved: list[dict],
+    rejected: list[str],
+) -> tuple[list[dict], list[str]]:
+    """One chance for the model to fix what the checker rejected.
+
+    Not a loop: the tool's own description already states the schema, and a
+    model that still misses it is not reliably fixed by asking indefinitely.
+    One retry, and only if it does not leave the player with less than the
+    first attempt already had — the model's second guess is not
+    automatically the better one.
+
+    No rules are searched for this leg (see llm-service's handling of
+    retry_feedback): this is not a new question, so no embedding call is
+    made for it either.
+    """
+    retry_body = _request_body(payload, conversation)
+    retry_body["history"] = [
+        *conversation.history,
+        {"role": "user", "text": payload.question},
+        {"role": "assistant", "text": first_answer},
+    ]
+    retry_body["retry_feedback"] = _retry_feedback_text(resolved, rejected)
+
+    try:
+        retry_response = _ask_llm_service(retry_body)
+    except HTTPException:
+        # Best effort: the first attempt already gave the player something
+        # real, and a broken correction step must not take that away.
+        return resolved, rejected
+
+    retry_proposals = retry_response.get("proposed_changes") or []
+    retry_resolved, retry_rejected = _check_proposals(conversation.character, retry_proposals)
+
+    if len(retry_resolved) >= len(resolved):
+        return retry_resolved, retry_rejected
+    return resolved, rejected
+
+
 @router.get("/ping")
 def ping() -> dict:
     try:
@@ -191,28 +275,19 @@ def ask(
     session: Session = Depends(get_session),
 ) -> dict:
     conversation = _open_conversation(payload, current_user, session)
-
-    try:
-        response = httpx.post(
-            f"{settings.llm_service_url}/ask",
-            json=_request_body(payload, conversation),
-            timeout=settings.llm_request_timeout_seconds,
-        )
-    except httpx.HTTPError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"llm-service unreachable: {exc}",
-        ) from exc
-
-    if response.status_code >= 400:
-        raise HTTPException(status_code=response.status_code, detail=response.text)
-
-    body = response.json()
+    body = _ask_llm_service(_request_body(payload, conversation))
 
     proposals = body.pop("proposed_changes", []) or []
-    body["proposed_changes"], body["rejected_changes"] = _check_proposals(
-        conversation.character, proposals
-    )
+    resolved, rejected = _check_proposals(conversation.character, proposals)
+    if rejected and settings.sheet_edit_retry:
+        resolved, rejected = _retry_with_feedback(
+            payload,
+            conversation,
+            first_answer=body.get("answer", ""),
+            resolved=resolved,
+            rejected=rejected,
+        )
+    body["proposed_changes"], body["rejected_changes"] = resolved, rejected
     body["message_id"] = _save_turn(
         conversation,
         session,
@@ -291,6 +366,18 @@ def ask_stream(
                     proposed, rejected = _check_proposals(
                         conversation.character, finished.get("proposed_changes") or []
                     )
+                    if rejected and settings.sheet_edit_retry:
+                        # A plain (non-streaming) call: the correction is
+                        # about which paths are valid, not prose the player
+                        # needs to watch arrive, and reusing /ask/stream here
+                        # would mean showing them a second, confusing reply.
+                        proposed, rejected = _retry_with_feedback(
+                            payload,
+                            conversation,
+                            first_answer="".join(answer),
+                            resolved=proposed,
+                            rejected=rejected,
+                        )
                     message_id = _save_turn(
                         conversation,
                         session,

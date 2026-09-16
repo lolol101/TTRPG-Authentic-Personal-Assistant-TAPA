@@ -86,9 +86,29 @@ def _prepare_with_progress(
     work before a single word of the answer exists. Yielding the stage turns
     that silence into something a reader can follow; the assembled prompt
     comes back as the generator's return value.
+
+    payload.retry_feedback marks a different kind of leg entirely: web-backend
+    reporting what its checker did with the model's last proposal, not a new
+    question, so nothing here is searched or rewritten for it.
     """
     turns = [Turn(role=message.role, text=message.text) for message in payload.history]
     fitted = fit_history(turns, settings.history_token_budget)
+
+    if payload.retry_feedback is not None:
+        # web-backend's checker rejected part of the model's last proposal
+        # and is reporting the result, not asking something new — nothing
+        # here needs the rulebooks searched again, so no retrieval and no
+        # embedding call are made for this leg. See build_ask_messages.
+        yield event("stage", {"stage": "revising"})
+        messages = build_ask_messages(
+            payload.question,
+            [],
+            payload.character_context,
+            allow_sheet_edits=payload.allow_sheet_edits,
+            history=fitted.messages,
+            retry_feedback=payload.retry_feedback,
+        )
+        return ([], messages, fitted)
 
     # A request to change the sheet is really several requests; ask what it
     # touches and search for each part. An ordinary question plans to

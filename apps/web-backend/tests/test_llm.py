@@ -275,3 +275,179 @@ def test_ask_ignores_proposals_when_no_character_is_selected(client, monkeypatch
     body = client.post("/llm/ask", json={"question": "вопрос"}, headers=headers).json()
 
     assert body["proposed_changes"] == []
+
+
+def _stub_ask_sequence(monkeypatch, responses: list[dict]):
+    """Each call to llm-service returns the next stubbed response in order."""
+    calls: list[dict] = []
+
+    def _fake_post(url, json, timeout):
+        calls.append(json)
+        payload = responses[min(len(calls) - 1, len(responses) - 1)]
+        return _FakeAskResponse(200, payload)
+
+    monkeypatch.setattr(llm.httpx, "post", _fake_post)
+    return calls
+
+
+def test_a_rejected_path_gets_one_retry_with_what_the_checker_found(client, monkeypatch) -> None:
+    headers = _auth_headers(client)
+    character_id = client.post("/characters", json={"name": "Рэм"}, headers=headers).json()["id"]
+    calls = _stub_ask_sequence(
+        monkeypatch,
+        [
+            {
+                "answer": "Собрал.",
+                "sources": [],
+                "proposed_changes": [
+                    {"path": "sheet_data.made_up_field", "value": "что-то"},
+                ],
+            },
+            {
+                "answer": "",
+                "sources": [],
+                # The corrected call proposes a real column instead.
+                "proposed_changes": [{"path": "ancestry", "value": "Человек"}],
+            },
+        ],
+    )
+
+    body = client.post(
+        "/llm/ask",
+        json={"question": "Собери персонажа", "character_id": character_id},
+        headers=headers,
+    ).json()
+
+    assert len(calls) == 2
+    assert body["proposed_changes"] == [
+        {
+            "path": "ancestry",
+            "value": "Человек",
+            "reason": "",
+            "label": "Происхождение",
+            "before": "",
+            "verified": False,
+            "section": "Личность",
+        }
+    ]
+    assert body["rejected_changes"] == []
+
+    # The retry is told what happened, in words the model can act on.
+    retry_request = calls[1]
+    assert "sheet_data.made_up_field" in retry_request["retry_feedback"]
+    assert "недоступен" in retry_request["retry_feedback"]
+    assert retry_request["history"][-2] == {"role": "user", "text": "Собери персонажа"}
+    assert retry_request["history"][-1] == {"role": "assistant", "text": "Собрал."}
+
+
+def test_no_rejection_means_no_retry_call_at_all(client, monkeypatch) -> None:
+    """The whole point: when the checker has nothing to report, there is
+    nothing for the model to read, so no second call is made."""
+    headers = _auth_headers(client)
+    character_id = client.post("/characters", json={"name": "Рэм"}, headers=headers).json()["id"]
+    calls = _stub_ask_sequence(
+        monkeypatch,
+        [
+            {
+                "answer": "ок",
+                "sources": [],
+                "proposed_changes": [{"path": "hp_current", "value": 10}],
+            }
+        ],
+    )
+
+    client.post(
+        "/llm/ask",
+        json={"question": "вопрос", "character_id": character_id},
+        headers=headers,
+    )
+
+    assert len(calls) == 1
+
+
+def test_a_retry_that_does_not_improve_keeps_the_first_attempt(client, monkeypatch) -> None:
+    """The model's second guess is not automatically the better one — the
+    player must not end up with less than the first pass already gave them."""
+    headers = _auth_headers(client)
+    character_id = client.post("/characters", json={"name": "Рэм"}, headers=headers).json()["id"]
+    _stub_ask_sequence(
+        monkeypatch,
+        [
+            {
+                "answer": "Собрал.",
+                "sources": [],
+                "proposed_changes": [
+                    {"path": "hp_current", "value": 10},
+                    {"path": "owner_id", "value": 2},
+                ],
+            },
+            {
+                # The corrected attempt is worse: it drops the good change too.
+                "answer": "",
+                "sources": [],
+                "proposed_changes": [{"path": "owner_id", "value": 2}],
+            },
+        ],
+    )
+
+    body = client.post(
+        "/llm/ask",
+        json={"question": "вопрос", "character_id": character_id},
+        headers=headers,
+    ).json()
+
+    assert [change["path"] for change in body["proposed_changes"]] == ["hp_current"]
+    assert len(body["rejected_changes"]) == 1
+
+
+def test_the_retry_can_be_turned_off(client, monkeypatch) -> None:
+    headers = _auth_headers(client)
+    character_id = client.post("/characters", json={"name": "Рэм"}, headers=headers).json()["id"]
+    monkeypatch.setattr(llm.settings, "sheet_edit_retry", False)
+    calls = _stub_ask_sequence(
+        monkeypatch,
+        [{"answer": "ок", "sources": [], "proposed_changes": [{"path": "owner_id", "value": 2}]}],
+    )
+
+    client.post(
+        "/llm/ask",
+        json={"question": "вопрос", "character_id": character_id},
+        headers=headers,
+    )
+
+    assert len(calls) == 1
+
+
+def test_a_broken_retry_leaves_the_first_answer_standing(client, monkeypatch) -> None:
+    """The correction step is best-effort: a player who already has a real
+    answer must not lose it because the second call failed."""
+    headers = _auth_headers(client)
+    character_id = client.post("/characters", json={"name": "Рэм"}, headers=headers).json()["id"]
+    calls: list[dict] = []
+
+    def _fake_post(url, json, timeout):
+        calls.append(json)
+        if len(calls) == 1:
+            return _FakeAskResponse(
+                200,
+                {
+                    "answer": "Собрал.",
+                    "sources": [],
+                    "proposed_changes": [
+                        {"path": "hp_current", "value": 10},
+                        {"path": "x", "value": 1},
+                    ],
+                },
+            )
+        return _FakeAskResponse(503, {"detail": "not configured"})
+
+    monkeypatch.setattr(llm.httpx, "post", _fake_post)
+
+    body = client.post(
+        "/llm/ask",
+        json={"question": "вопрос", "character_id": character_id},
+        headers=headers,
+    ).json()
+
+    assert len(calls) == 2
+    assert [change["path"] for change in body["proposed_changes"]] == ["hp_current"]
