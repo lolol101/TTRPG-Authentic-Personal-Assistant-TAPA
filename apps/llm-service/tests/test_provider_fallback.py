@@ -181,6 +181,9 @@ def test_raises_when_every_provider_is_down(monkeypatch) -> None:
 def test_no_configured_provider_is_reported_clearly(monkeypatch) -> None:
     monkeypatch.setattr(settings, "llm_api_key", "")
     monkeypatch.setattr(settings, "llm_fallback_api_key", "")
+    # A provider can also be configured by credentials rather than a key.
+    monkeypatch.setattr(settings, "llm_auth_key", "")
+    monkeypatch.setattr(settings, "llm_fallback_auth_key", "")
     llm_provider._clients.clear()
 
     with pytest.raises(llm_provider.LLMNotConfiguredError):
