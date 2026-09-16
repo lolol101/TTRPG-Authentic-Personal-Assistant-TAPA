@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
+import httpx
 from openai import APIConnectionError, APITimeoutError, InternalServerError, OpenAI
 
 from app.core.config import settings
@@ -85,7 +86,20 @@ def _complete_once(
         request["tools"] = tools
 
     response = _client_for(config).chat.completions.create(**request)
-    choice = response.choices[0].message
+
+    # A provider under load can answer 200 with an error body the client
+    # still parses, leaving choices None. Indexing that crashed the request
+    # with a TypeError, which is not a failover error — so the configured
+    # fallback was never tried in the one situation it exists for.
+    choices = getattr(response, "choices", None)
+    if not choices:
+        raise InternalServerError(
+            f"{config.label} returned no choices",
+            response=httpx.Response(502, request=httpx.Request("POST", config.base_url)),
+            body=None,
+        )
+
+    choice = choices[0].message
 
     changes: list[dict[str, Any]] = []
     clarification: dict[str, Any] | None = None
