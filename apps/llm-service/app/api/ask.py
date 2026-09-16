@@ -13,6 +13,7 @@ from app.core.history import FittedHistory, Turn, fit_history, retrieval_query
 from app.core.llm_provider import Completion, LLMNotConfiguredError, complete, stream
 from app.core.prompts import build_ask_messages
 from app.core.retriever import retrieve
+from app.core.sheet_plan import PlanStep, plan_for
 from app.core.sse import event
 from app.core.tools import CLARIFY_TOOL, SHEET_CHANGE_TOOL
 from app.schemas.ask import (
@@ -59,17 +60,46 @@ def _memory_of(fitted: FittedHistory) -> Memory:
     )
 
 
+def _retrieve_per_area(payload: AskRequest, steps: list[PlanStep]) -> list[dict]:
+    """One search per area of the sheet the request touches, merged.
+
+    A single k=5 search cannot serve "build me a level 1 rogue": five chunks
+    between them cover neither the ancestry, the class feats nor the gear,
+    and what they miss the model fills in from memory. Areas overlap, so the
+    same page comes back more than once — paying context for it twice buys
+    nothing.
+    """
+    merged: list[dict] = []
+    seen: set[str] = set()
+    for step in steps:
+        for hit in retrieve(step.query, payload.k, ruleset=payload.ruleset):
+            key = hit.get("id") or hit["metadata"]["url"]
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(hit)
+    return merged
+
+
 def _prepare(payload: AskRequest) -> tuple[list[dict], list[dict], FittedHistory]:
     """Retrieval and prompt assembly, shared by the two endpoints."""
     turns = [Turn(role=message.role, text=message.text) for message in payload.history]
     fitted = fit_history(turns, settings.history_token_budget)
 
-    # Searched against the whole history, not the trimmed part: a follow-up
-    # should still find the right rule page even when the turn it leans on
-    # has already slid out of the model's window.
-    retrieved = retrieve(
-        retrieval_query(payload.question, turns), payload.k, ruleset=payload.ruleset
-    )
+    # A request to change the sheet is really several requests; ask what it
+    # touches and search for each part. An ordinary question plans to
+    # nothing and keeps the single cheap retrieval it has always had.
+    steps = plan_for(payload.question) if _tools_for(payload) else []
+
+    if steps:
+        retrieved = _retrieve_per_area(payload, steps)
+    else:
+        # Searched against the whole history, not the trimmed part: a follow-up
+        # should still find the right rule page even when the turn it leans on
+        # has already slid out of the model's window.
+        retrieved = retrieve(
+            retrieval_query(payload.question, turns), payload.k, ruleset=payload.ruleset
+        )
 
     messages = build_ask_messages(
         payload.question,
