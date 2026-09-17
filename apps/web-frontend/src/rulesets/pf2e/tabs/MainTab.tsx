@@ -21,6 +21,8 @@ import {
   formatModifier,
   modifierFromScore,
   SAVES,
+  scoreForModifier,
+  scoreFromModifier,
   SKILLS,
   WEAPON_CATEGORIES,
   type ProficiencyRank,
@@ -122,6 +124,7 @@ export function MainTab() {
     componentsFor,
     setComponents,
     abilityMod,
+    setAbility,
   } = useSheet()
 
   const hp = sheet.hp ?? DEFAULT_HP
@@ -276,6 +279,12 @@ export function MainTab() {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {ABILITIES.map((ability) => {
             const score = scores[ability.key] ?? 10
+            const modifier = draft[`${ability.key}_mod` as const]
+            // Sheets filled in before the two fields were linked — and any the
+            // assistant wrote a modifier into without a score — can still hold
+            // a pair that contradicts itself. Saying so beats silently
+            // rewriting a number the player never touched.
+            const consistent = modifierFromScore(score) === modifier
             return (
               <div key={ability.key} className="space-y-1.5 rounded-md border bg-card/60 p-2.5">
                 <div className="text-center text-xs font-semibold" title={ability.full}>
@@ -284,22 +293,39 @@ export function MainTab() {
                 <Field
                   label="Модификатор"
                   type="number"
-                  value={draft[`${ability.key}_mod` as const]}
-                  onChange={(value) => setNumberField(`${ability.key}_mod` as const, value)}
+                  value={modifier}
+                  onChange={(value) => {
+                    const next = toNumber(value)
+                    setAbility(ability.key, { modifier: next, score: scoreForModifier(next, score) })
+                  }}
                   inputClassName="h-10 text-center font-sans text-lg font-semibold"
                 />
                 <Field
                   label="Значение"
                   type="number"
                   value={score}
-                  onChange={(value) =>
-                    patchSheet({ ability_scores: { ...scores, [ability.key]: toNumber(value) } })
-                  }
+                  onChange={(value) => {
+                    const next = toNumber(value)
+                    setAbility(ability.key, { score: next, modifier: modifierFromScore(next) })
+                  }}
                   inputClassName="text-center font-sans"
                 />
-                <p className="text-center text-[10px] text-muted-foreground">
-                  по значению {formatModifier(modifierFromScore(score))}
-                </p>
+                {consistent ? (
+                  <p className="text-center text-[10px] text-muted-foreground">
+                    {score} → {formatModifier(modifier)}
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAbility(ability.key, { modifier, score: scoreFromModifier(modifier) })
+                    }
+                    title={`Поставить значение ${scoreFromModifier(modifier)} под модификатор ${formatModifier(modifier)}`}
+                    className="w-full text-center text-[10px] text-amber-600 underline-offset-2 hover:underline dark:text-amber-500"
+                  >
+                    не сходится · согласовать
+                  </button>
+                )}
               </div>
             )
           })}

@@ -4,7 +4,11 @@ import type { ProposedChange } from '@/lib/api'
 
 interface Props {
   changes: ProposedChange[]
-  /** Sections already written to the sheet, so they are not offered twice. */
+  /**
+   * Sections already written to the sheet, so they are not offered twice.
+   * A lone `"*"` means the whole turn was applied — that is all the server
+   * remembers about a reloaded chat, which has no per-section record.
+   */
   appliedSections: string[]
   /** Sections with an apply request still in flight — greyed out and
    * unclickable so a slow network doesn't invite a second click. */
@@ -25,6 +29,25 @@ function describe(value: unknown): string {
   if (value === null || value === undefined) return '—'
   if (typeof value === 'object') return '…'
   return String(value)
+}
+
+export type ApplyState = 'idle' | 'applying' | 'done'
+
+/**
+ * What a section's apply button is doing right now.
+ *
+ * `"*"` stands for the whole turn on both lists: applied, because a reloaded
+ * chat only remembers that the turn was applied and not which parts; and
+ * applying, because "Применить всё" is one request covering every section.
+ */
+export function applyState(
+  section: string,
+  appliedSections: string[],
+  applyingSections: string[],
+): ApplyState {
+  if (appliedSections.includes('*') || appliedSections.includes(section)) return 'done'
+  if (applyingSections.includes('*') || applyingSections.includes(section)) return 'applying'
+  return 'idle'
 }
 
 function groupBySection(changes: ProposedChange[]): [string, ProposedChange[]][] {
@@ -51,10 +74,12 @@ export function ProposedChanges({
   onApply,
 }: Props) {
   const sections = groupBySection(changes)
-  const pending = sections.filter(([section]) => !appliedSections.includes(section))
+  const stateOf = (section: string) => applyState(section, appliedSections, applyingSections)
+  const pending = sections.filter(([section]) => stateOf(section) !== 'done')
   // Applying one section at a time avoids two requests racing to patch the
   // same sheet, so "Применить всё" also greys out while any single one runs.
   const anyApplying = applyingSections.length > 0
+  const allDone = pending.length === 0
 
   return (
     <div className="space-y-2 border-t pt-2">
@@ -62,40 +87,44 @@ export function ProposedChanges({
         <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
           Предлагаемые изменения листа
         </p>
-        {pending.length > 1 && (
+        {sections.length > 1 && (
           <Button
             size="sm"
             variant="outline"
             className="ml-auto h-6 text-xs"
-            disabled={anyApplying}
+            disabled={allDone || anyApplying}
             onClick={() => onApply('*', pending.flatMap(([, entries]) => entries))}
           >
-            {applyingSections.includes('*') ? 'Применяю…' : 'Применить всё'}
+            {allDone
+              ? 'Применено'
+              : applyingSections.includes('*')
+                ? 'Применяю…'
+                : 'Применить всё'}
           </Button>
         )}
       </div>
 
       {sections.map(([section, entries]) => {
-        const done = appliedSections.includes(section)
-        const applyingThis = applyingSections.includes(section) || applyingSections.includes('*')
+        const state = stateOf(section)
+        const done = state === 'done'
         return (
           <div key={section} className="rounded border bg-background/40 p-2">
             <div className="mb-1 flex items-center gap-2">
               <span className="text-xs font-medium">{section}</span>
               <span className="text-[10px] text-muted-foreground">{entries.length}</span>
-              {done ? (
-                <span className="ml-auto text-[10px] text-muted-foreground">применено</span>
-              ) : (
-                <Button
-                  size="sm"
-                  className="ml-auto h-6 text-xs"
-                  disabled={anyApplying}
-                  onClick={() => onApply(section, entries)}
-                >
-                  <Check className="size-3" />
-                  {applyingThis ? 'Применяю…' : 'Применить'}
-                </Button>
-              )}
+              {/* An applied section keeps its button rather than swapping it for
+                  a caption: a spent button that stays put, greyed and dead to
+                  clicks, is the thing that reads as "already done". Replacing
+                  it reflowed the card and left nothing disabled to look at. */}
+              <Button
+                size="sm"
+                className="ml-auto h-6 text-xs"
+                disabled={done || anyApplying}
+                onClick={() => onApply(section, entries)}
+              >
+                <Check className="size-3" />
+                {done ? 'Применено' : state === 'applying' ? 'Применяю…' : 'Применить'}
+              </Button>
             </div>
 
             <ul className="space-y-1 text-xs">

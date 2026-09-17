@@ -223,6 +223,22 @@ export function modifierFromScore(score: number): number {
   return Math.floor((score - 10) / 2)
 }
 
+/** Modifier → its score, the inverse of the sheet's «two points per point». */
+export function scoreFromModifier(modifier: number): number {
+  return 10 + modifier * 2
+}
+
+/**
+ * The score to store when the modifier is what the player typed.
+ *
+ * A modifier has two scores behind it — +1 is both 12 and 13 — so a score
+ * that already produces the typed modifier is left exactly as it is, and
+ * only a score that contradicts it gets rewritten to the even one.
+ */
+export function scoreForModifier(modifier: number, currentScore: number): number {
+  return modifierFromScore(currentScore) === modifier ? currentScore : scoreFromModifier(modifier)
+}
+
 /** Encumbered at 5 + Str, and you cannot carry past 10 + Str. */
 export function bulkLimits(strMod: number): { encumbered: number; maximum: number } {
   return { encumbered: 5 + strMod, maximum: 10 + strMod }
