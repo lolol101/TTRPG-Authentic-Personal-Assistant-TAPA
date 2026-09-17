@@ -34,7 +34,10 @@ SHEET_CHANGE_TOOL: dict[str, Any] = {
                                 "description": (
                                     "Что менять. Числа: hp_current, hp_max, level, ac, "
                                     "speed, str_mod, dex_mod, con_mod, int_mod, wis_mod, "
-                                    "cha_mod, sheet_data.hero_points, sheet_data.dying, "
+                                    "cha_mod, sheet_data.ability_scores.<str|dex|con|int|"
+                                    "wis|cha> (значение характеристики — заполняй его вместе "
+                                    "с соответствующим *_mod, значение = 10 + 2×модификатор), "
+                                    "sheet_data.hero_points, sheet_data.dying, "
                                     "sheet_data.wounded, sheet_data.conditions.<состояние>, "
                                     "sheet_data.stats.<характеристика>.rank|item|temporary. "
                                     "Текст: name, ancestry, background, class_name, "

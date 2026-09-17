@@ -109,6 +109,28 @@ def test_edit_instructions_are_absent_without_a_character() -> None:
     assert "propose_sheet_change" not in build_system_prompt(allow_sheet_edits=True)
 
 
+def test_edit_instructions_require_a_complete_build() -> None:
+    """Observed live: a "собери персонажа" request left feats unchosen and
+    skill ranks untouched. Nothing told the model a build without them counts
+    as done, so it stopped at whatever it happened to think of first."""
+    prompt = build_system_prompt("Персонаж: Рэм", allow_sheet_edits=True)
+
+    assert "rank" in prompt
+    assert "черты" in prompt.lower()
+    assert "слот" in prompt.lower()
+
+
+def test_edit_instructions_tell_the_model_to_set_the_score_with_the_modifier() -> None:
+    """The sheet shows a score next to every ability modifier and now flags a
+    pair that disagrees — the model must be told the matching path exists and
+    the arithmetic it has to honour, or every AI-built character shows a
+    mismatch it had no way to avoid."""
+    prompt = build_system_prompt("Персонаж: Рэм", allow_sheet_edits=True)
+
+    assert "sheet_data.ability_scores" in prompt
+    assert "10 + 2" in prompt
+
+
 def test_retry_feedback_replaces_the_question_turn_verbatim() -> None:
     """This leg is web-backend reporting what its checker did with the
     model's last proposal — not a new question, so the usual "Контекст:
