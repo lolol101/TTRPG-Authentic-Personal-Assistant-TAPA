@@ -87,7 +87,11 @@ export interface Pf2eSheetData {
   class_feats?: Card[]
   bonus_feats?: Card[]
 
-  inventory?: { worn: Card[]; ready: Card[]; other: Card[] }
+  // Each slot is its own proposal to the assistant (sheet_data.inventory.worn
+  // etc are separate CARD_FIELDS), so a sheet whose "ready" was never touched
+  // stores an inventory object with no "ready" key at all — optional here to
+  // match, not just the container.
+  inventory?: { worn?: Card[]; ready?: Card[]; other?: Card[] }
   coins?: Record<string, number>
 
   bio?: {
