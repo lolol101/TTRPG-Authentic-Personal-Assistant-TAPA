@@ -407,3 +407,284 @@ def test_two_entries_never_collide_on_one_id(tmp_path) -> None:
     ids = [json.loads(line)["id"] for line in lines]
 
     assert len(ids) == len(set(ids)) == 2
+
+
+# --- stat block fields ----------------------------------------------------
+#
+# Shapes taken from a scan of all 29361 entries in the dataset, not guessed:
+# prerequisites are one-key dicts inside a list (3792 entries store an empty
+# one), frequency stores ISO-8601 for anything under a day, requirements is
+# sometimes a bare string instead of {"value": ...}, and `trigger` is present
+# 41 times and empty in every single one.
+
+
+def test_prerequisites_are_listed_on_their_own_line() -> None:
+    page = entry_to_page(
+        _entry(system={"prerequisites": {"value": [{"value": "trained in Athletics"}]}}),
+        pack="feats",
+        relative_path="feats/x.json",
+    )
+
+    assert "Prerequisites trained in Athletics" in page.body
+
+
+def test_several_prerequisites_are_joined() -> None:
+    page = entry_to_page(
+        _entry(
+            system={
+                "prerequisites": {
+                    "value": [
+                        {"value": "Mortal Herald Dedication"},
+                        {"value": "expert in Religion"},
+                    ]
+                }
+            }
+        ),
+        pack="feats",
+        relative_path="feats/x.json",
+    )
+
+    assert "Prerequisites Mortal Herald Dedication; expert in Religion" in page.body
+
+
+def test_an_empty_prerequisite_list_prints_nothing() -> None:
+    """3792 entries store an empty list — the commonest shape of the field."""
+    page = entry_to_page(
+        _entry(system={"prerequisites": {"value": []}}),
+        pack="feats",
+        relative_path="feats/x.json",
+    )
+
+    assert "Prerequisites" not in page.body
+
+
+def test_an_action_cost_is_counted() -> None:
+    page = entry_to_page(
+        _entry(system={"actionType": {"value": "action"}, "actions": {"value": 2}}),
+        pack="feats",
+        relative_path="feats/x.json",
+    )
+
+    assert "Actions 2" in page.body
+
+
+def test_a_reaction_is_named_rather_than_counted() -> None:
+    page = entry_to_page(
+        _entry(system={"actionType": {"value": "reaction"}, "actions": {"value": None}}),
+        pack="feats",
+        relative_path="feats/x.json",
+    )
+
+    assert "Reaction" in page.body
+    assert "Actions" not in page.body
+
+
+def test_a_passive_ability_states_no_action_cost() -> None:
+    """5974 entries are passive: the absence of a cost, not a cost of none."""
+    page = entry_to_page(
+        _entry(system={"actionType": {"value": "passive"}, "actions": {"value": None}}),
+        pack="feats",
+        relative_path="feats/x.json",
+    )
+
+    assert "Actions" not in page.body
+    assert "passive" not in page.body.lower()
+
+
+def test_an_iso_frequency_is_written_out() -> None:
+    """Otherwise it reads "Frequency once per PT10M"."""
+    page = entry_to_page(
+        _entry(system={"frequency": {"max": 1, "per": "PT10M"}}),
+        pack="feats",
+        relative_path="feats/x.json",
+    )
+
+    assert "Frequency once per 10 minutes" in page.body
+
+
+def test_a_plain_word_frequency_is_left_alone() -> None:
+    page = entry_to_page(
+        _entry(system={"frequency": {"max": 2, "per": "day"}}),
+        pack="feats",
+        relative_path="feats/x.json",
+    )
+
+    assert "Frequency 2 times per day" in page.body
+
+
+def test_a_single_hour_reads_as_a_singular() -> None:
+    page = entry_to_page(
+        _entry(system={"frequency": {"max": 1, "per": "PT1H"}}),
+        pack="feats",
+        relative_path="feats/x.json",
+    )
+
+    assert "Frequency once per hour" in page.body
+
+
+def test_a_price_names_its_coin() -> None:
+    page = entry_to_page(
+        _entry(system={"price": {"value": {"gp": 50}}}),
+        pack="equipment",
+        relative_path="equipment/x.json",
+    )
+
+    assert "Price 50 gp" in page.body
+
+
+def test_an_empty_price_prints_nothing() -> None:
+    """357 entries store an empty coin map — free, or priced by a table."""
+    page = entry_to_page(
+        _entry(system={"price": {"value": {}}}),
+        pack="equipment",
+        relative_path="equipment/x.json",
+    )
+
+    assert "Price" not in page.body
+
+
+def test_light_bulk_uses_the_sheets_own_letter() -> None:
+    """0.1 is how the dataset stores what every book prints as "L"."""
+    page = entry_to_page(
+        _entry(system={"bulk": {"value": 0.1}}),
+        pack="equipment",
+        relative_path="equipment/x.json",
+    )
+
+    assert "Bulk L" in page.body
+
+
+def test_a_whole_bulk_is_a_number() -> None:
+    page = entry_to_page(
+        _entry(system={"bulk": {"value": 2}}),
+        pack="equipment",
+        relative_path="equipment/x.json",
+    )
+
+    assert "Bulk 2" in page.body
+
+
+def test_usage_reads_as_words_not_a_slug() -> None:
+    page = entry_to_page(
+        _entry(system={"usage": {"value": "held-in-two-hands"}}),
+        pack="equipment",
+        relative_path="equipment/x.json",
+    )
+
+    assert "Usage held in two hands" in page.body
+
+
+def test_a_basic_save_says_so() -> None:
+    page = entry_to_page(
+        _entry(system={"defense": {"save": {"basic": True, "statistic": "reflex"}}}),
+        pack="spells",
+        relative_path="spells/x.json",
+    )
+
+    assert "Saving Throw basic Reflex" in page.body
+
+
+def test_a_non_basic_save_names_only_the_statistic() -> None:
+    page = entry_to_page(
+        _entry(system={"defense": {"save": {"basic": False, "statistic": "will"}}}),
+        pack="spells",
+        relative_path="spells/x.json",
+    )
+
+    assert "Saving Throw Will" in page.body
+    assert "basic" not in page.body
+
+
+def test_an_area_is_given_in_feet() -> None:
+    page = entry_to_page(
+        _entry(system={"area": {"type": "burst", "value": 20}}),
+        pack="spells",
+        relative_path="spells/x.json",
+    )
+
+    assert "Area 20-foot burst" in page.body
+
+
+def test_a_spelled_out_area_is_preferred_to_the_shape() -> None:
+    page = entry_to_page(
+        _entry(
+            system={
+                "area": {"details": "5-foot emanation or more", "type": "emanation", "value": 5}
+            }
+        ),
+        pack="spells",
+        relative_path="spells/x.json",
+    )
+
+    assert "Area 5-foot emanation or more" in page.body
+
+
+def test_requirements_survive_a_bare_string() -> None:
+    """The field is a dict in most entries and a plain string in a few."""
+    page = entry_to_page(
+        _entry(system={"requirements": "You have a free hand."}),
+        pack="actions",
+        relative_path="actions/x.json",
+    )
+
+    assert "Requirements You have a free hand." in page.body
+
+
+def test_an_empty_requirement_prints_nothing() -> None:
+    page = entry_to_page(
+        _entry(system={"requirements": {"value": ""}}),
+        pack="actions",
+        relative_path="actions/x.json",
+    )
+
+    assert "Requirements" not in page.body
+
+
+def test_an_uncommon_rarity_is_stated() -> None:
+    page = entry_to_page(
+        _entry(system={"traits": {"value": ["magical"], "rarity": "rare"}}),
+        pack="feats",
+        relative_path="feats/x.json",
+    )
+
+    assert "Rarity rare" in page.body
+
+
+def test_common_rarity_is_left_unsaid() -> None:
+    """16506 of 26156 entries are common: printing it is noise in every one."""
+    page = entry_to_page(
+        _entry(system={"traits": {"value": ["magical"], "rarity": "common"}}),
+        pack="feats",
+        relative_path="feats/x.json",
+    )
+
+    assert "Rarity" not in page.body
+
+
+def test_a_feats_category_says_which_slot_it_fills() -> None:
+    """The sheet keeps class, ancestry, skill and general feats apart, so
+    this is what decides which group a chosen feat goes into."""
+    page = entry_to_page(
+        _entry(system={"category": "ancestry"}),
+        pack="feats",
+        relative_path="feats/x.json",
+    )
+
+    assert "Category ancestry" in page.body
+
+
+def test_targets_are_stated() -> None:
+    page = entry_to_page(
+        _entry(system={"target": {"value": "1 willing creature"}}),
+        pack="spells",
+        relative_path="spells/x.json",
+    )
+
+    assert "Targets 1 willing creature" in page.body
+
+
+def test_an_entry_with_none_of_these_fields_is_unchanged() -> None:
+    """The fields are all optional, and most entries carry only a few."""
+    page = entry_to_page(_entry(), pack="spells", relative_path="spells/x.json")
+
+    assert page.body.startswith("Test Entry\n\nSpell 3 · Traits: fire, concentrate")

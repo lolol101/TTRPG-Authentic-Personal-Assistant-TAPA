@@ -185,3 +185,24 @@ def test_the_rules_context_stays_next_to_the_question_it_was_found_for() -> None
 
     assert "текст A" in _question(messages)
     assert "текст A" not in _system(messages)
+
+
+def test_edit_instructions_ask_for_the_whole_stat_block_on_a_card() -> None:
+    """Reported live: cards arrived with a name and nothing else — no
+    description, prerequisites, action cost or requirements. Measured on the
+    index built at the time, only 1.8% of feat chunks mentioned a
+    prerequisite at all, so the corpus was fixed too; this is the half that
+    tells the model those fields are its job."""
+    prompt = build_system_prompt("Персонаж: Рэм", allow_sheet_edits=True)
+
+    assert "стат-блок" in prompt
+    assert "предварительные условия" in prompt
+    assert "описание" in prompt
+
+
+def test_edit_instructions_forbid_inventing_a_field_the_page_omits() -> None:
+    """The dangerous failure is not an empty field, it is a plausible one: a
+    made-up prerequisite reads exactly like a rule."""
+    prompt = build_system_prompt("Персонаж: Рэм", allow_sheet_edits=True)
+
+    assert "оставь пустым" in prompt
