@@ -434,6 +434,29 @@ def _resolve_sheet(character: Character, change: ProposedChange) -> ResolvedChan
             section=section_for(change.path),
         )
 
+    if parts[:2] == ["sheet_data", "ability_scores"] and len(parts) == 3:
+        ability = parts[2]
+        if ability not in rules.ABILITY_LABEL:
+            raise ChangeRejected(f"Неизвестная характеристика: {ability}")
+        # The sheet shows a score next to every modifier — see the frontend's
+        # scoreForModifier — but the model can only ever set the *_mod column
+        # unless this path exists, which left every AI-built character
+        # showing a mismatch the model had no way to fix.
+        label = f"{rules.ABILITY_LABEL[ability]} (значение)"
+        number = _as_int(change.value, label)
+        if not 1 <= number <= 30:
+            raise ChangeRejected(f"{label}: {number} вне допустимого диапазона 1…30")
+        before = (sheet.get("ability_scores") or {}).get(ability, 10)
+        return ResolvedChange(
+            path=change.path,
+            value=number,
+            reason=change.reason,
+            label=label,
+            before=before,
+            verified=verify_workings(change, before, number, label),
+            section=section_for(change.path),
+        )
+
     if parts[:1] == ["sheet_data"] and len(parts) == 2 and parts[1] in {"dying", "wounded"}:
         label = "При смерти" if parts[1] == "dying" else "Ранение"
         number = _as_int(change.value, label)

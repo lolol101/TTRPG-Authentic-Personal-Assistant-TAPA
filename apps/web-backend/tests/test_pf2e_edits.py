@@ -98,6 +98,38 @@ def test_refuses_an_unknown_statistic() -> None:
         resolve_change(_character(), ProposedChange("sheet_data.stats.cooking.rank", "expert"))
 
 
+def test_accepts_an_ability_score_paired_with_its_modifier() -> None:
+    """The sheet shows a score next to every modifier — see the frontend's
+    scoreForModifier — but until this path existed the model could only ever
+    set the *_mod column, so every AI-built character showed a mismatch."""
+    resolved = resolve_change(
+        _character(sheet_data={"ability_scores": {"str": 10}}),
+        ProposedChange("sheet_data.ability_scores.str", 18, "СИЛ 18"),
+    )
+
+    assert resolved.value == 18
+    assert resolved.before == 10
+    assert resolved.section == "Основное"  # groups with str_mod, not sheet_data.*
+
+
+def test_ability_score_defaults_its_before_value_to_ten() -> None:
+    resolved = resolve_change(
+        _character(), ProposedChange("sheet_data.ability_scores.dex", 14)
+    )
+
+    assert resolved.before == 10
+
+
+def test_refuses_an_unknown_ability() -> None:
+    with pytest.raises(ChangeRejected, match="Неизвестная характеристика"):
+        resolve_change(_character(), ProposedChange("sheet_data.ability_scores.luck", 14))
+
+
+def test_refuses_an_ability_score_out_of_range() -> None:
+    with pytest.raises(ChangeRejected, match="вне допустимого диапазона"):
+        resolve_change(_character(), ProposedChange("sheet_data.ability_scores.str", 99))
+
+
 def test_rejects_a_non_numeric_value_for_a_number_field() -> None:
     with pytest.raises(ChangeRejected, match="ожидалось число"):
         resolve_change(_character(), ProposedChange("hp_current", "много"))
