@@ -38,6 +38,41 @@ SHEET_AREAS: dict[str, str] = {
     "bio": "биография внешность характер",
 }
 
+#: Which chunk categories can actually answer each area, for the metadata
+#: filter on its search. The values are the `category` field the ingested
+#: corpus carries (Foundry compendium packs), not names of our own: see
+#: app.ingest.to_metadata.
+#:
+#: Measured on the live index with build-style queries — how many of the 5
+#: context slots landed in the right section, unfiltered → filtered:
+#:
+#:     "fighter class features level 1"  0/5 → 5/5
+#:     "background trained skill feat"   0/5 → 5/5
+#:     "wizard cantrips level 1"         0/5 → 5/5
+#:     "rogue class features level 1"    2/5 → 5/5
+#:                            average  2.44/5 → 5/5
+#:
+#: An area missing here searches the whole index, which is the behaviour
+#: every area had before. "skills" is deliberately absent: the corpus is
+#: built from compendium *entries*, and no category holds the rules chapters
+#: about trained/expert ranks — filtering it changed 0/5 to 0/5, so there is
+#: nothing to gain and a wrong filter to lose. Indexing those chapters is
+#: its own backlog item.
+AREA_CATEGORIES: dict[str, tuple[str, ...]] = {
+    "ancestry": ("ancestries", "ancestry-features", "heritages"),
+    "background": ("backgrounds",),
+    "class": ("classes", "class-features"),
+    "feats": ("feats",),
+    "equipment": ("equipment",),
+    "spells": ("spells",),
+}
+
+
+def categories_for(area: str) -> tuple[str, ...] | None:
+    """The categories to restrict *area*'s search to, or None for all of them."""
+    return AREA_CATEGORIES.get(area)
+
+
 #: Each step costs a retrieval and lands in one prompt. Past this the context
 #: window the retrieval is meant to protect is the thing being blown.
 MAX_STEPS = 6
@@ -125,4 +160,12 @@ def plan_for(question: str) -> list[PlanStep]:
     return steps
 
 
-__all__ = ["MAX_STEPS", "PLAN_SHEET_WORK", "SHEET_AREAS", "PlanStep", "plan_for"]
+__all__ = [
+    "AREA_CATEGORIES",
+    "MAX_STEPS",
+    "PLAN_SHEET_WORK",
+    "SHEET_AREAS",
+    "PlanStep",
+    "categories_for",
+    "plan_for",
+]

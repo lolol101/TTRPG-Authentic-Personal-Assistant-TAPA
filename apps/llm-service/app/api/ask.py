@@ -14,7 +14,7 @@ from app.core.llm_provider import Completion, LLMNotConfiguredError, complete, s
 from app.core.prompts import build_ask_messages
 from app.core.query_rewrite import rewrite_for_search
 from app.core.retriever import retrieve
-from app.core.sheet_plan import PlanStep, plan_for
+from app.core.sheet_plan import PlanStep, categories_for, plan_for
 from app.core.sse import event
 from app.core.tools import CLARIFY_TOOL, SHEET_CHANGE_TOOL
 from app.schemas.ask import (
@@ -126,7 +126,16 @@ def _prepare_with_progress(
                 "stage",
                 {"stage": "searching", "area": step.area, "index": index, "total": len(steps)},
             )
-            _collect(retrieved, seen, retrieve(step.query, payload.k, ruleset=payload.ruleset))
+            # The area is what makes this search different from the others,
+            # so it narrows the search as well as wording it: without the
+            # filter every area still ranked against the whole corpus, and
+            # two thirds of that corpus is feats and equipment.
+            categories = categories_for(step.area) if settings.retrieval_filter_by_section else None
+            _collect(
+                retrieved,
+                seen,
+                retrieve(step.query, payload.k, ruleset=payload.ruleset, categories=categories),
+            )
     else:
         # Searched against the whole history, not the trimmed part: a follow-up
         # should still find the right rule page even when the turn it leans on
