@@ -2,6 +2,7 @@ import { SendHorizontal } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChatSidebar } from '@/components/ChatSidebar'
 import { ProposedChanges } from '@/components/ProposedChanges'
+import { SourcesPopover } from '@/components/SourcesPopover'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -182,9 +183,16 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
     }
   }, [token, activeId])
 
+  // A new turn or a growing answer is worth following; applying a change is
+  // not — it only rewrites a message in place, and scrolling away from the
+  // button just clicked hides the very thing that changed.
+  const streamedText = messages[messages.length - 1]?.streaming
+    ? messages[messages.length - 1]?.text
+    : null
+
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [messages.length, streamedText])
 
   async function createChat(): Promise<Chat> {
     const chat = await api.createChat(token, {
@@ -548,28 +556,7 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
                   )}
 
                   {message.sources && message.sources.length > 0 && (
-                    <div className="space-y-1 border-t pt-2">
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                        Источники
-                      </p>
-                      <ul className="space-y-0.5 text-xs">
-                        {message.sources.map((source) => (
-                          <li key={source.url}>
-                            <a
-                              href={source.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-primary underline-offset-4 hover:underline"
-                            >
-                              {source.title}
-                            </a>
-                            {source.source_book && (
-                              <span className="text-muted-foreground"> — {source.source_book}</span>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
+                    <SourcesPopover sources={message.sources} />
                   )}
                 </div>
               </div>

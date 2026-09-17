@@ -12,6 +12,14 @@ export interface SheetApi {
   componentsFor: (key: string) => StatComponents
   setComponents: (key: string, next: StatComponents) => void
   abilityMod: (ability: AbilityKey) => number
+  /**
+   * Writes a score and its modifier together.
+   *
+   * The two live apart — the modifier in a typed column the backend queries,
+   * the score in sheet_data — so keeping them in step takes one update that
+   * touches both, not two that race each other.
+   */
+  setAbility: (ability: AbilityKey, next: { score: number; modifier: number }) => void
 }
 
 const SheetContext = createContext<SheetApi | null>(null)

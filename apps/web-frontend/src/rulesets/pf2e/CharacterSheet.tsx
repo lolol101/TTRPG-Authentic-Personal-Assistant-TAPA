@@ -63,6 +63,18 @@ export function CharacterSheet({ character, token, onSave, onDelete, onBack, onR
         }
       }),
     abilityMod: (ability: AbilityKey) => draft[`${ability}_mod` as const],
+    setAbility: (ability, next) =>
+      setDraft((current) => {
+        const currentSheet = current.sheet_data as Pf2eSheetData
+        return {
+          ...current,
+          [`${ability}_mod`]: next.modifier,
+          sheet_data: {
+            ...currentSheet,
+            ability_scores: { ...currentSheet.ability_scores, [ability]: next.score },
+          },
+        }
+      }),
   }
 
   async function handleSave() {

@@ -5,6 +5,8 @@ import {
   computeStat,
   modifierFromScore,
   proficiencyBonus,
+  scoreForModifier,
+  scoreFromModifier,
   type StatComponents,
 } from '@/rulesets/pf2e/domain'
 
@@ -108,6 +110,43 @@ describe('modifierFromScore', () => {
   it('rounds odd low scores down, not toward zero', () => {
     expect(modifierFromScore(9)).toBe(-1)
     expect(modifierFromScore(7)).toBe(-2)
+  })
+})
+
+describe('scoreFromModifier', () => {
+  it('walks back the sheet: two points of score per point of modifier', () => {
+    expect(scoreFromModifier(1)).toBe(12)
+    expect(scoreFromModifier(2)).toBe(14)
+    expect(scoreFromModifier(0)).toBe(10)
+    expect(scoreFromModifier(4)).toBe(18)
+  })
+
+  it('goes below ten for a penalty', () => {
+    expect(scoreFromModifier(-1)).toBe(8)
+  })
+
+  it('round-trips through modifierFromScore', () => {
+    for (const modifier of [-2, -1, 0, 1, 2, 3, 4, 5, 6]) {
+      expect(modifierFromScore(scoreFromModifier(modifier))).toBe(modifier)
+    }
+  })
+})
+
+describe('scoreForModifier', () => {
+  it('rewrites a score that contradicts the typed modifier', () => {
+    expect(scoreForModifier(2, 10)).toBe(14)
+    expect(scoreForModifier(0, 18)).toBe(10)
+  })
+
+  it('leaves an odd score that already produces that modifier alone', () => {
+    // 13 is +1 just as much as 12 is; retyping +1 must not shave a point off
+    // a score the player entered deliberately.
+    expect(scoreForModifier(1, 13)).toBe(13)
+    expect(scoreForModifier(-1, 9)).toBe(9)
+  })
+
+  it('leaves an already-matching even score alone', () => {
+    expect(scoreForModifier(2, 14)).toBe(14)
   })
 })
 
