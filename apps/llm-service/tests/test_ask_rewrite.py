@@ -31,7 +31,7 @@ def _payload(**overrides):
 def _record_queries(monkeypatch) -> list[str]:
     queries: list[str] = []
 
-    def _fake_retrieve(query, k, ruleset=None):
+    def _fake_retrieve(query, k, ruleset=None, categories=None):
         queries.append(query)
         return [_hit(query)]
 

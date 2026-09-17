@@ -90,6 +90,16 @@ class Settings(BaseSettings):
     # it off to get the single plain search back.
     retrieval_rewrite_query: bool = True
 
+    # On a sheet-building request, restrict each area's search to the chunk
+    # categories that area can actually be answered from. Measured on the
+    # live index: a build-style query put 2.44 of 5 context slots in the
+    # right section, and "fighter class features level 1" put 0 of 5 —
+    # five archetype feats and no class feature at all. Filtered, 5 of 5.
+    # Ordinary questions stay unfiltered: there the same measurement moved
+    # 11 of 12 cases to 12 of 12, which is not worth the risk of a wrong
+    # filter. Turn this off to search the whole index for every area.
+    retrieval_filter_by_section: bool = True
+
     # What the dialogue may take of the model's window. The rules context is
     # retrieved fresh every turn and is the point of the app, so it is served
     # first; this is the leftover the chat history slides through.

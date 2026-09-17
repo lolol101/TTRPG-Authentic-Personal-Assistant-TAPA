@@ -34,7 +34,7 @@ def _payload(**overrides):
 def test_a_plain_question_makes_exactly_one_retrieval(monkeypatch) -> None:
     queries: list[str] = []
 
-    def _fake_retrieve(query, k, ruleset=None):
+    def _fake_retrieve(query, k, ruleset=None, categories=None):
         queries.append(query)
         return [_hit("Grapple")]
 
@@ -53,7 +53,7 @@ def test_a_plain_question_makes_exactly_one_retrieval(monkeypatch) -> None:
 def test_a_sheet_request_searches_once_per_area(monkeypatch) -> None:
     queries: list[str] = []
 
-    def _fake_retrieve(query, k, ruleset=None):
+    def _fake_retrieve(query, k, ruleset=None, categories=None):
         queries.append(query)
         return [_hit(f"hit for {query}")]
 
@@ -77,7 +77,9 @@ def test_a_sheet_request_searches_once_per_area(monkeypatch) -> None:
 def test_the_same_rule_found_twice_appears_once(monkeypatch) -> None:
     """Areas overlap — a rogue's gear and a rogue's class both surface the
     same page — and paying context for it twice buys nothing."""
-    monkeypatch.setattr(ask_api, "retrieve", lambda query, k, ruleset=None: [_hit("Rogue")])
+    monkeypatch.setattr(
+        ask_api, "retrieve", lambda query, k, ruleset=None, categories=None: [_hit("Rogue")]
+    )
     monkeypatch.setattr(
         ask_api,
         "plan_for",
@@ -95,7 +97,9 @@ def test_the_same_rule_found_twice_appears_once(monkeypatch) -> None:
 def test_planning_never_blocks_the_answer(monkeypatch) -> None:
     """If planning is unavailable the request must still be answered the
     old way rather than failing."""
-    monkeypatch.setattr(ask_api, "retrieve", lambda query, k, ruleset=None: [_hit("Whatever")])
+    monkeypatch.setattr(
+        ask_api, "retrieve", lambda query, k, ruleset=None, categories=None: [_hit("Whatever")]
+    )
     monkeypatch.setattr(ask_api, "plan_for", lambda question: [])
     monkeypatch.setattr(ask_api, "rewrite_for_search", lambda question: None)
 
@@ -103,3 +107,56 @@ def test_planning_never_blocks_the_answer(monkeypatch) -> None:
 
     assert len(retrieved) == 1
     assert messages
+
+
+def test_each_area_search_is_restricted_to_that_areas_sections(monkeypatch) -> None:
+    """The point of knowing the area: it narrows the search, not just the
+    wording. Before this the area only changed the query string, so all six
+    searches still ranked against the whole corpus — two thirds of which is
+    feats and equipment."""
+    seen: list[tuple[str, tuple | None]] = []
+
+    def _fake_retrieve(query, k, ruleset=None, categories=None):
+        seen.append((query, categories))
+        return [_hit(f"hit for {query}")]
+
+    monkeypatch.setattr(ask_api, "retrieve", _fake_retrieve)
+    monkeypatch.setattr(ask_api.settings, "retrieval_filter_by_section", True)
+    monkeypatch.setattr(
+        ask_api,
+        "plan_for",
+        lambda question: [
+            PlanStep(area="class", query="rogue features"),
+            PlanStep(area="feats", query="rogue level 1 feats"),
+            PlanStep(area="skills", query="trained skills"),
+        ],
+    )
+
+    ask_api._prepare(_payload())
+
+    assert seen == [
+        ("rogue features", ("classes", "class-features")),
+        ("rogue level 1 feats", ("feats",)),
+        # Unmapped on purpose — nothing in the corpus to narrow to.
+        ("trained skills", None),
+    ]
+
+
+def test_the_section_filter_can_be_turned_off(monkeypatch) -> None:
+    """Retrieval parameters go through config, so the old whole-index
+    behaviour stays one setting away — see .claude/rules/ml-system-design.md."""
+    seen: list[tuple | None] = []
+
+    def _fake_retrieve(query, k, ruleset=None, categories=None):
+        seen.append(categories)
+        return [_hit(query)]
+
+    monkeypatch.setattr(ask_api, "retrieve", _fake_retrieve)
+    monkeypatch.setattr(ask_api.settings, "retrieval_filter_by_section", False)
+    monkeypatch.setattr(
+        ask_api, "plan_for", lambda question: [PlanStep(area="class", query="rogue features")]
+    )
+
+    ask_api._prepare(_payload())
+
+    assert seen == [None]
