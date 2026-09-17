@@ -113,6 +113,30 @@ export function blankCard(schema: CardSchema): Card {
   return card
 }
 
+export interface Inventory {
+  worn: Card[]
+  ready: Card[]
+  other: Card[]
+}
+
+/**
+ * A sheet's inventory with every slot present, never undefined.
+ *
+ * The assistant proposes each slot as its own change (sheet_data.inventory.
+ * worn, .ready, .other are separate fields the checker writes independently),
+ * so a sheet whose "ready" slot was never touched stores an inventory object
+ * with no "ready" key at all — observed live: inventory.ready.length crashed
+ * the whole tab with a white screen. Each slot is defaulted on its own here,
+ * not just the container.
+ */
+export function normalizeInventory(raw: Partial<Inventory> | undefined): Inventory {
+  return {
+    worn: raw?.worn ?? [],
+    ready: raw?.ready ?? [],
+    other: raw?.other ?? [],
+  }
+}
+
 /** The one-line preview shown while a card is collapsed. */
 export function cardSummary(schema: CardSchema, card: Card): string {
   return schema.fields
