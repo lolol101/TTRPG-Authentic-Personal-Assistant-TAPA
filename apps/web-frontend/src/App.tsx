@@ -116,7 +116,11 @@ function App() {
           <TabsTrigger value="chat">Чат</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="characters" className="mt-4">
+        {/* keepMounted for the same reason the chat has it, and a sharper
+            one: the open sheet holds the player's unsaved typing, and
+            unmounting threw it away without a word — measured, typing into
+            Языки and stepping into the chat lost it. */}
+        <TabsContent value="characters" className="mt-4" keepMounted>
           {openCharacter ? (
             Sheet ? (
               <Sheet
