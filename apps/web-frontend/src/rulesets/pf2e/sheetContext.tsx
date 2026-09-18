@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react'
 import type { Character } from '@/lib/api'
-import { EMPTY_COMPONENTS, type AbilityKey, type StatComponents } from '@/rulesets/pf2e/domain'
+import { normalizeComponents, type AbilityKey, type StatComponents } from '@/rulesets/pf2e/domain'
 import type { Pf2eSheetData } from '@/rulesets/pf2e/types'
 
 export interface SheetApi {
@@ -38,5 +38,5 @@ export function toNumber(raw: string): number {
 }
 
 export function componentsOf(sheet: Pf2eSheetData, key: string): StatComponents {
-  return sheet.stats?.[key] ?? EMPTY_COMPONENTS
+  return normalizeComponents(sheet.stats?.[key] as StatComponents | undefined)
 }
