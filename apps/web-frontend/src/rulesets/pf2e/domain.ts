@@ -167,6 +167,22 @@ export interface StatComponents {
 
 export const EMPTY_COMPONENTS: StatComponents = { rank: 'untrained', item: 0, temporary: 0 }
 
+/**
+ * A stat's stored components, with every part present.
+ *
+ * Each field is proposed and written independently — same as inventory, see
+ * normalizeInventory in cards.ts — so a sheet whose item/temporary bonus was
+ * never touched stores `{ rank: "trained" }` with no other keys. Observed
+ * live: `item`/`temporary` were then `undefined`, and computeStat's
+ * `+ components.item + components.temporary` turned every skill using that
+ * component into NaN. Merged with the defaults here, not just defaulted as a
+ * whole: a stored partial object is truthy, so `?? EMPTY_COMPONENTS` never
+ * even ran.
+ */
+export function normalizeComponents(raw: Partial<StatComponents> | undefined): StatComponents {
+  return { ...EMPTY_COMPONENTS, ...raw }
+}
+
 /** PF2e: untrained adds nothing at all — level only counts once trained. */
 export function proficiencyBonus(rank: ProficiencyRank, level: number): number {
   if (rank === 'untrained') return 0

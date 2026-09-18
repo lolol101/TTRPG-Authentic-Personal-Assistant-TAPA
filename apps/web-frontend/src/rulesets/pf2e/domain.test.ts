@@ -4,6 +4,7 @@ import {
   computeMaxHp,
   computeStat,
   modifierFromScore,
+  normalizeComponents,
   proficiencyBonus,
   scoreForModifier,
   scoreFromModifier,
@@ -154,5 +155,39 @@ describe('bulkLimits', () => {
   it('encumbers at 5 + Str and caps at 10 + Str', () => {
     expect(bulkLimits(3)).toEqual({ encumbered: 8, maximum: 13 })
     expect(bulkLimits(-1)).toEqual({ encumbered: 4, maximum: 9 })
+  })
+})
+
+describe('normalizeComponents', () => {
+  it('defaults every part when the sheet has nothing for this stat', () => {
+    expect(normalizeComponents(undefined)).toEqual({ rank: 'untrained', item: 0, temporary: 0 })
+  })
+
+  it('leaves a fully populated component set untouched', () => {
+    const full: StatComponents = { rank: 'expert', item: 1, temporary: 2 }
+    expect(normalizeComponents(full)).toEqual(full)
+  })
+
+  it('defaults just the missing parts, not the whole component set', () => {
+    // Observed live: rank, item and temporary are proposed and written
+    // independently, same as inventory slots — a stat whose item/temporary
+    // bonus was never touched stored only { rank: "trained" }, and
+    // computeStat's `+ components.item + components.temporary` turned every
+    // such skill into NaN.
+    expect(normalizeComponents({ rank: 'trained' })).toEqual({
+      rank: 'trained',
+      item: 0,
+      temporary: 0,
+    })
+  })
+
+  it('keeps a stat total finite once normalized', () => {
+    const { total } = computeStat({
+      abilityMod: 3,
+      abilityLabel: 'СИЛ',
+      level: 5,
+      components: normalizeComponents({ rank: 'trained' }),
+    })
+    expect(Number.isNaN(total)).toBe(false)
   })
 })

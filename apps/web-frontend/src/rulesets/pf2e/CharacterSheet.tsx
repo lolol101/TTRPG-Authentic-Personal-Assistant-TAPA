@@ -4,7 +4,12 @@ import { SheetVersions } from '@/components/SheetVersions'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { Character, CharacterUpdate } from '@/lib/api'
 import { draftFrom, nextDraft } from '@/rulesets/pf2e/draft'
-import { computeMaxHp, EMPTY_COMPONENTS, type AbilityKey, type StatComponents } from '@/rulesets/pf2e/domain'
+import {
+  computeMaxHp,
+  normalizeComponents,
+  type AbilityKey,
+  type StatComponents,
+} from '@/rulesets/pf2e/domain'
 import { SheetProvider, toNumber, type SheetApi } from '@/rulesets/pf2e/sheetContext'
 import { BioTab } from '@/rulesets/pf2e/tabs/BioTab'
 import { FeatsGearTab } from '@/rulesets/pf2e/tabs/FeatsGearTab'
@@ -59,7 +64,7 @@ export function CharacterSheet({ character, token, onSave, onDelete, onBack, onR
         ...current,
         sheet_data: { ...(current.sheet_data as Pf2eSheetData), ...patch },
       })),
-    componentsFor: (key) => (sheet.stats?.[key] as StatComponents) ?? EMPTY_COMPONENTS,
+    componentsFor: (key) => normalizeComponents(sheet.stats?.[key] as StatComponents | undefined),
     setComponents: (key, next) =>
       editDraft((current) => {
         const currentSheet = current.sheet_data as Pf2eSheetData
