@@ -68,6 +68,15 @@ class Settings(BaseSettings):
     embedding_base_url: str = "http://localhost:11434"
     embedding_timeout_seconds: float = 120.0
 
+    # Retries inside one embedding call. A full re-index is hours of
+    # back-to-back requests to a local server, and a single transient
+    # timeout used to end the whole run — measured, one did, 2029 chunks
+    # into 13511. Retried in place rather than failed over: the fallback
+    # embeds into a different vector space, and switching mid-corpus would
+    # leave one collection holding two.
+    embedding_retry_attempts: int = 3
+    embedding_retry_backoff_seconds: float = 2.0
+
     # Embeddings stay off the GPU so the generation model keeps the whole card.
     # A large model fills VRAM by itself; letting the embedder onto the GPU too
     # makes Ollama evict one for the other, and every ask pays a model reload
