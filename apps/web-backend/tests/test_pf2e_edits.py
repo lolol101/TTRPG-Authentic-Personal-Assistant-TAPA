@@ -639,3 +639,51 @@ def test_a_computed_modifier_is_still_refused() -> None:
             _character(),
             ProposedChange(path="sheet_data.skills.Acrobatics.modifier", value=6),
         )
+
+
+def test_a_cards_list_valued_field_is_joined_rather_than_dropped() -> None:
+    """Observed live once the corpus carried traits: the model filled
+    "traits": ["barbarian", "fighter", "flourish"] correctly and the card
+    arrived without them — a list is neither a scalar nor a string, so it
+    fell through. The sheet shows traits as one line, same as languages."""
+    resolved = resolve_change(
+        _character(),
+        ProposedChange(
+            "sheet_data.class_feats",
+            [{"name": "Sudden Charge", "traits": ["barbarian", "fighter", "flourish"]}],
+        ),
+    )
+
+    assert resolved.value[0]["traits"] == "barbarian, fighter, flourish"
+
+
+def test_a_cards_numeric_list_is_joined_too() -> None:
+    resolved = resolve_change(
+        _character(),
+        ProposedChange("sheet_data.spells", [{"name": "Fireball", "levels": [3, 4, 5]}]),
+    )
+
+    assert resolved.value[0]["levels"] == "3, 4, 5"
+
+
+def test_a_nested_list_on_a_card_is_still_refused() -> None:
+    """Only flat lists of words are readable as a line; anything richer is
+    the model improvising a shape the sheet cannot render."""
+    resolved = resolve_change(
+        _character(),
+        ProposedChange(
+            "sheet_data.class_feats",
+            [{"name": "Weird Feat", "traits": [{"value": "fighter"}]}],
+        ),
+    )
+
+    assert "traits" not in resolved.value[0]
+
+
+def test_an_empty_list_on_a_card_becomes_an_empty_line() -> None:
+    resolved = resolve_change(
+        _character(),
+        ProposedChange("sheet_data.class_feats", [{"name": "Plain Feat", "traits": []}]),
+    )
+
+    assert resolved.value[0]["traits"] == ""

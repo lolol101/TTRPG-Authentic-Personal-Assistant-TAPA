@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from abc import ABC, abstractmethod
 
 from app.core.config import settings
@@ -50,11 +51,23 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
     ONNX one — Russian retrieval on the light model was noticeably weak.
     """
 
-    def __init__(self, model_id: str, base_url: str, timeout: float, use_gpu: bool) -> None:
+    def __init__(
+        self,
+        model_id: str,
+        base_url: str,
+        timeout: float,
+        use_gpu: bool,
+        attempts: int = 1,
+        backoff: float = 0.0,
+    ) -> None:
         self._model_id = model_id
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
         self._use_gpu = use_gpu
+        #: Public so the availability probe can turn retries off for itself
+        #: without building a second provider — see _probe.
+        self.retry_attempts = max(1, attempts)
+        self.retry_backoff = backoff
 
     @property
     def model_id(self) -> str:
@@ -69,12 +82,31 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
             # generation model for VRAM. See config.embedding_use_gpu.
             payload["options"] = {"num_gpu": 0}
 
-        response = httpx.post(
-            f"{self._base_url}/api/embed",
-            json=payload,
-            timeout=self._timeout,
-        )
-        response.raise_for_status()
+        # A local server still drops the occasional request, and an index
+        # build is hours of them: one ReadTimeout ended a run 2029 chunks in.
+        # Retrying the batch costs seconds; losing the run costs the hours.
+        for attempt in range(1, self.retry_attempts + 1):
+            try:
+                response = httpx.post(
+                    f"{self._base_url}/api/embed",
+                    json=payload,
+                    timeout=self._timeout,
+                )
+                response.raise_for_status()
+                break
+            except (httpx.HTTPError, OSError) as exc:
+                if attempt == self.retry_attempts:
+                    raise
+                _log.warning(
+                    "embedding request failed (%s), attempt %d of %d; retrying in %.1fs",
+                    type(exc).__name__,
+                    attempt,
+                    self.retry_attempts,
+                    self.retry_backoff * attempt,
+                )
+                if self.retry_backoff:
+                    time.sleep(self.retry_backoff * attempt)
+
         embeddings = response.json()["embeddings"]
 
         if len(embeddings) != len(texts):
@@ -96,8 +128,27 @@ def _build(backend: str, model_id: str) -> EmbeddingProvider:
             base_url=settings.embedding_base_url,
             timeout=settings.embedding_timeout_seconds,
             use_gpu=settings.embedding_use_gpu,
+            attempts=settings.embedding_retry_attempts,
+            backoff=settings.embedding_retry_backoff_seconds,
         )
     return FastEmbedProvider(model_id)
+
+
+def _probe(provider: EmbeddingProvider) -> None:
+    """Is this backend answering at all?
+
+    One attempt, whatever the retry policy: the fallback *is* the answer to
+    "not available", so sitting through three timeouts before taking it only
+    delays the service starting by minutes.
+    """
+    attempts = getattr(provider, "retry_attempts", 1)
+    if isinstance(provider, OllamaEmbeddingProvider):
+        provider.retry_attempts = 1
+    try:
+        provider.embed(["проверка доступности"])
+    finally:
+        if isinstance(provider, OllamaEmbeddingProvider):
+            provider.retry_attempts = attempts
 
 
 def build_embedding_provider() -> EmbeddingProvider:
@@ -109,7 +160,7 @@ def build_embedding_provider() -> EmbeddingProvider:
     """
     primary = _build(settings.embedding_backend, settings.embedding_model_id)
     try:
-        primary.embed(["проверка доступности"])
+        _probe(primary)
         return primary
     except Exception as exc:  # noqa: BLE001 — any failure means "use the fallback"
         if not settings.embedding_fallback_backend:

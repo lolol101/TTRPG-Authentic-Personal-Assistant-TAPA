@@ -273,6 +273,15 @@ def _clean_card(raw: Any, label: str, index: int) -> dict[str, Any]:
             card[key] = value
         elif value is None or isinstance(value, str):
             card[key] = _as_text(value, f"{label}: {key}")
+        elif isinstance(value, list) and all(
+            isinstance(item, (str, int, float)) and not isinstance(item, bool) for item in value
+        ):
+            # A card's plural fields — traits above all — are one line on the
+            # sheet and a list to the model, which is how a correctly filled
+            # "traits": ["fighter", "flourish"] used to be dropped on the
+            # floor without a word. Same reading as _as_text gives the plural
+            # text columns.
+            card[key] = _as_text(value, f"{label}: {key}")
 
     card["name"] = name
     # Stamped, not trusted: the catalogue is not indexed yet, so this text
