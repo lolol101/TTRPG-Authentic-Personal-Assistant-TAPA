@@ -1,7 +1,7 @@
 import { Section } from '@/components/Section'
 import { Field } from '@/rulesets/pf2e/components/SheetBits'
 import { CardList } from '@/rulesets/pf2e/components/CardList'
-import { FEAT_SCHEMA, ITEM_SCHEMA, type Card } from '@/rulesets/pf2e/cards'
+import { FEAT_SCHEMA, ITEM_SCHEMA, normalizeInventory, type Card } from '@/rulesets/pf2e/cards'
 import { bulkLimits, COINS } from '@/rulesets/pf2e/domain'
 import { toNumber, useSheet } from '@/rulesets/pf2e/sheetContext'
 
@@ -51,7 +51,7 @@ function ItemColumn({
 export function FeatsGearTab() {
   const { draft, sheet, patchSheet } = useSheet()
 
-  const inventory = sheet.inventory ?? { worn: [], ready: [], other: [] }
+  const inventory = normalizeInventory(sheet.inventory)
   const coins = sheet.coins ?? {}
   const limits = bulkLimits(draft.str_mod)
 

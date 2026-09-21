@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.embedding_provider import EmbeddingProvider, get_embedding_provider
-from app.core.vector_store import upsert
+from app.core.vector_store import get_collection, upsert
 
 _log = logging.getLogger(__name__)
 _BATCH_SIZE = 32
@@ -51,8 +51,36 @@ def deduplicate(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return unique
 
 
-def ingest_records(records: list[dict[str, Any]], provider: EmbeddingProvider) -> int:
+def already_indexed(records: list[dict[str, Any]]) -> set[str]:
+    """Which of these chunk ids the store already holds.
+
+    Asked in one query rather than per record: the point is to skip work,
+    not to trade embedding calls for lookups.
+    """
+    if not records:
+        return set()
+    existing = get_collection().get(ids=[r["id"] for r in records], include=[])
+    return set(existing.get("ids") or [])
+
+
+def ingest_records(
+    records: list[dict[str, Any]], provider: EmbeddingProvider, *, resume: bool = False
+) -> int:
+    """Embed and store *records*, returning how many were written.
+
+    With *resume*, chunks already in the store are skipped. A full build is
+    hours of embedding calls, and one of them timing out used to mean
+    starting again from nothing — measured, that happened 2029 chunks into
+    13511. Ids are content-stable (a hash of the page url), so a second run
+    re-does only what is missing.
+    """
     records = deduplicate(records)
+    if resume:
+        done = already_indexed(records)
+        if done:
+            _log.info("Skipping %d chunks already in the store", len(done))
+            records = [r for r in records if r["id"] not in done]
+
     total = 0
     for start in range(0, len(records), _BATCH_SIZE):
         batch = records[start : start + _BATCH_SIZE]
@@ -68,20 +96,25 @@ def ingest_records(records: list[dict[str, Any]], provider: EmbeddingProvider) -
     return total
 
 
-def ingest_file(path: Path, provider: EmbeddingProvider) -> int:
-    return ingest_records(load_records(path), provider)
+def ingest_file(path: Path, provider: EmbeddingProvider, *, resume: bool = False) -> int:
+    return ingest_records(load_records(path), provider, resume=resume)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Embed chunk .jsonl files into the Chroma store.")
     parser.add_argument("paths", nargs="+", help="One or more chunk .jsonl files to ingest")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Skip chunks already in the store, to continue an interrupted build",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING)
 
     provider = get_embedding_provider()
-    total = sum(ingest_file(Path(p), provider) for p in args.paths)
+    total = sum(ingest_file(Path(p), provider, resume=args.resume) for p in args.paths)
     print(f"Indexed {total} chunks total.")
 
 

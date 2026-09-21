@@ -125,3 +125,88 @@ def test_falls_back_when_the_configured_backend_is_unreachable(monkeypatch) -> N
     monkeypatch.setattr(module.OllamaEmbeddingProvider, "embed", _unreachable)
 
     assert not isinstance(build_embedding_provider(), OllamaEmbeddingProvider)
+
+
+# --- retrying a flaky local server ---------------------------------------
+
+
+def test_a_transient_failure_is_retried_rather_than_losing_the_batch(monkeypatch) -> None:
+    """Measured: one ReadTimeout ended a 13511-chunk build 2029 chunks in."""
+    import httpx
+
+    calls = {"n": 0}
+
+    def _flaky(url, json, timeout):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ReadTimeout("timed out")
+        return _FakeResponse({"embeddings": [[0.1, 0.2]]})
+
+    monkeypatch.setattr(httpx, "post", _flaky)
+    provider = OllamaEmbeddingProvider(
+        "bge-m3", "http://x", 1.0, use_gpu=True, attempts=3, backoff=0.0
+    )
+
+    assert provider.embed(["текст"]) == [[0.1, 0.2]]
+    assert calls["n"] == 2
+
+
+def test_the_retries_run_out_rather_than_hiding_a_dead_backend(monkeypatch) -> None:
+    import httpx
+
+    calls = {"n": 0}
+
+    def _always_fails(url, json, timeout):
+        calls["n"] += 1
+        raise httpx.ConnectError("refused")
+
+    monkeypatch.setattr(httpx, "post", _always_fails)
+    provider = OllamaEmbeddingProvider(
+        "bge-m3", "http://x", 1.0, use_gpu=True, attempts=3, backoff=0.0
+    )
+
+    with pytest.raises(httpx.ConnectError):
+        provider.embed(["текст"])
+    assert calls["n"] == 3
+
+
+def test_retries_are_off_unless_asked_for(monkeypatch) -> None:
+    """The default keeps the old behaviour for anything constructing one
+    directly; the retry policy comes from config through _build."""
+    import httpx
+
+    calls = {"n": 0}
+
+    def _always_fails(url, json, timeout):
+        calls["n"] += 1
+        raise httpx.ReadTimeout("timed out")
+
+    monkeypatch.setattr(httpx, "post", _always_fails)
+
+    with pytest.raises(httpx.ReadTimeout):
+        OllamaEmbeddingProvider("bge-m3", "http://x", 1.0, use_gpu=True).embed(["текст"])
+    assert calls["n"] == 1
+
+
+def test_the_availability_probe_does_not_sit_through_every_retry(monkeypatch) -> None:
+    """The fallback is the answer to "not available", so waiting out three
+    120-second timeouts before taking it only delays startup by minutes."""
+    import httpx
+
+    calls = {"n": 0}
+
+    def _always_fails(url, json, timeout):
+        calls["n"] += 1
+        raise httpx.ReadTimeout("timed out")
+
+    monkeypatch.setattr(httpx, "post", _always_fails)
+    provider = OllamaEmbeddingProvider(
+        "bge-m3", "http://x", 1.0, use_gpu=True, attempts=5, backoff=0.0
+    )
+
+    with pytest.raises(httpx.ReadTimeout):
+        module._probe(provider)
+
+    assert calls["n"] == 1
+    # ...and the working policy is restored for the real calls afterwards.
+    assert provider.retry_attempts == 5

@@ -12,9 +12,9 @@ from app.core.config import settings
 from app.core.history import FittedHistory, Turn, fit_history, retrieval_query
 from app.core.llm_provider import Completion, LLMNotConfiguredError, complete, stream
 from app.core.prompts import build_ask_messages
-from app.core.query_rewrite import rewrite_for_search
+from app.core.query_rewrite import search_queries_for
 from app.core.retriever import retrieve
-from app.core.sheet_plan import PlanStep, plan_for
+from app.core.sheet_plan import PlanStep, categories_for, plan_for
 from app.core.sse import event
 from app.core.tools import CLARIFY_TOOL, SHEET_CHANGE_TOOL
 from app.schemas.ask import (
@@ -126,25 +126,37 @@ def _prepare_with_progress(
                 "stage",
                 {"stage": "searching", "area": step.area, "index": index, "total": len(steps)},
             )
-            _collect(retrieved, seen, retrieve(step.query, payload.k, ruleset=payload.ruleset))
+            # The area is what makes this search different from the others,
+            # so it narrows the search as well as wording it: without the
+            # filter every area still ranked against the whole corpus, and
+            # two thirds of that corpus is feats and equipment.
+            categories = categories_for(step.area) if settings.retrieval_filter_by_section else None
+            _collect(
+                retrieved,
+                seen,
+                retrieve(step.query, payload.k, ruleset=payload.ruleset, categories=categories),
+            )
     else:
         # Searched against the whole history, not the trimmed part: a follow-up
         # should still find the right rule page even when the turn it leans on
         # has already slid out of the model's window.
         query = retrieval_query(payload.question, turns)
 
-        english: str | None = None
+        english: list[str] = []
         if settings.retrieval_rewrite_query:
             yield event("stage", {"stage": "rewriting"})
-            english = rewrite_for_search(query)
+            english = search_queries_for(query)
 
         yield event("stage", {"stage": "searching"})
-        # The English phrasing goes first: on this index it is the one that
-        # ranks the answering page in the top few, and the model reads the
-        # front of its context most closely. The question as asked is kept
-        # behind it as the safety net for a rewrite that missed.
-        if english:
-            _collect(retrieved, seen, retrieve(english, payload.k, ruleset=payload.ruleset))
+        # The English phrasings go first: on this index they are the ones
+        # that rank the answering page in the top few, and the model reads
+        # the front of its context most closely. One per rule the question
+        # names — asked as a single query, a question about two rules is
+        # searched for one of them and answered from memory about the other.
+        # The question as asked is kept behind them as the safety net for a
+        # rewrite that missed.
+        for one in english:
+            _collect(retrieved, seen, retrieve(one, payload.k, ruleset=payload.ruleset))
         _collect(retrieved, seen, retrieve(query, payload.k, ruleset=payload.ruleset))
 
     messages = build_ask_messages(

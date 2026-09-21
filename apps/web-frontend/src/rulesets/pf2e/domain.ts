@@ -167,6 +167,22 @@ export interface StatComponents {
 
 export const EMPTY_COMPONENTS: StatComponents = { rank: 'untrained', item: 0, temporary: 0 }
 
+/**
+ * A stat's stored components, with every part present.
+ *
+ * Each field is proposed and written independently — same as inventory, see
+ * normalizeInventory in cards.ts — so a sheet whose item/temporary bonus was
+ * never touched stores `{ rank: "trained" }` with no other keys. Observed
+ * live: `item`/`temporary` were then `undefined`, and computeStat's
+ * `+ components.item + components.temporary` turned every skill using that
+ * component into NaN. Merged with the defaults here, not just defaulted as a
+ * whole: a stored partial object is truthy, so `?? EMPTY_COMPONENTS` never
+ * even ran.
+ */
+export function normalizeComponents(raw: Partial<StatComponents> | undefined): StatComponents {
+  return { ...EMPTY_COMPONENTS, ...raw }
+}
+
 /** PF2e: untrained adds nothing at all — level only counts once trained. */
 export function proficiencyBonus(rank: ProficiencyRank, level: number): number {
   if (rank === 'untrained') return 0
@@ -221,6 +237,22 @@ export function computeMaxHp(options: {
 /** Ability score → modifier, as printed on the 2021 sheet. */
 export function modifierFromScore(score: number): number {
   return Math.floor((score - 10) / 2)
+}
+
+/** Modifier → its score, the inverse of the sheet's «two points per point». */
+export function scoreFromModifier(modifier: number): number {
+  return 10 + modifier * 2
+}
+
+/**
+ * The score to store when the modifier is what the player typed.
+ *
+ * A modifier has two scores behind it — +1 is both 12 and 13 — so a score
+ * that already produces the typed modifier is left exactly as it is, and
+ * only a score that contradicts it gets rewritten to the even one.
+ */
+export function scoreForModifier(modifier: number, currentScore: number): number {
+  return modifierFromScore(currentScore) === modifier ? currentScore : scoreFromModifier(modifier)
 }
 
 /** Encumbered at 5 + Str, and you cannot carry past 10 + Str. */

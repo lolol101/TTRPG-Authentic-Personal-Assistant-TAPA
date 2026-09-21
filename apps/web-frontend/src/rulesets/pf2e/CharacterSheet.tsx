@@ -1,9 +1,15 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { SheetVersions } from '@/components/SheetVersions'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { Character, CharacterUpdate } from '@/lib/api'
-import { computeMaxHp, EMPTY_COMPONENTS, type AbilityKey, type StatComponents } from '@/rulesets/pf2e/domain'
+import { draftFrom, nextDraft } from '@/rulesets/pf2e/draft'
+import {
+  computeMaxHp,
+  normalizeComponents,
+  type AbilityKey,
+  type StatComponents,
+} from '@/rulesets/pf2e/domain'
 import { SheetProvider, toNumber, type SheetApi } from '@/rulesets/pf2e/sheetContext'
 import { BioTab } from '@/rulesets/pf2e/tabs/BioTab'
 import { FeatsGearTab } from '@/rulesets/pf2e/tabs/FeatsGearTab'
@@ -23,39 +29,44 @@ interface Props {
 
 const DEFAULT_HP = { ancestry: 0, per_level: 0, item: 0, other: 0, penalty: 0, temporary: 0 }
 
-/**
- * Older sheets stored only a flat hp_max. Seeding it into `other` keeps the
- * computed maximum identical while the composition starts out empty.
- */
-function initialSheetData(character: Character): Pf2eSheetData {
-  const data = (character.sheet_data ?? {}) as Pf2eSheetData
-  if (data.hp) return data
-  return { ...data, hp: { ...DEFAULT_HP, other: character.hp_max } }
-}
-
 export function CharacterSheet({ character, token, onSave, onDelete, onBack, onReload }: Props) {
-  const [draft, setDraft] = useState<Character>({
-    ...character,
-    sheet_data: initialSheetData(character),
-  })
+  const [draft, setDraft] = useState<Character>(() => draftFrom(character))
   const [saving, setSaving] = useState(false)
+  /** Typed into the sheet and not written back yet — see nextDraft. */
+  const [dirty, setDirty] = useState(false)
+
+  // The stored character moves under the sheet whenever a proposal is applied
+  // from the chat or a version is restored, and the sheet has to follow it —
+  // without throwing away typing that exists nowhere else.
+  useEffect(() => {
+    setDraft((current) => nextDraft(current, character, dirty))
+    // `dirty` is deliberately not a dependency: this runs when the stored
+    // character changes, not when the player starts typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [character])
 
   const sheet = draft.sheet_data as Pf2eSheetData
+
+  /** Every edit goes through here, so nothing can change the draft quietly. */
+  function editDraft(update: (current: Character) => Character) {
+    setDirty(true)
+    setDraft(update)
+  }
 
   const api: SheetApi = {
     draft,
     sheet,
-    setField: (key, value) => setDraft((current) => ({ ...current, [key]: value })),
+    setField: (key, value) => editDraft((current) => ({ ...current, [key]: value })),
     setNumberField: (key, raw) =>
-      setDraft((current) => ({ ...current, [key]: toNumber(raw) as Character[typeof key] })),
+      editDraft((current) => ({ ...current, [key]: toNumber(raw) as Character[typeof key] })),
     patchSheet: (patch) =>
-      setDraft((current) => ({
+      editDraft((current) => ({
         ...current,
         sheet_data: { ...(current.sheet_data as Pf2eSheetData), ...patch },
       })),
-    componentsFor: (key) => (sheet.stats?.[key] as StatComponents) ?? EMPTY_COMPONENTS,
+    componentsFor: (key) => normalizeComponents(sheet.stats?.[key] as StatComponents | undefined),
     setComponents: (key, next) =>
-      setDraft((current) => {
+      editDraft((current) => {
         const currentSheet = current.sheet_data as Pf2eSheetData
         return {
           ...current,
@@ -63,6 +74,18 @@ export function CharacterSheet({ character, token, onSave, onDelete, onBack, onR
         }
       }),
     abilityMod: (ability: AbilityKey) => draft[`${ability}_mod` as const],
+    setAbility: (ability, next) =>
+      editDraft((current) => {
+        const currentSheet = current.sheet_data as Pf2eSheetData
+        return {
+          ...current,
+          [`${ability}_mod`]: next.modifier,
+          sheet_data: {
+            ...currentSheet,
+            ability_scores: { ...currentSheet.ability_scores, [ability]: next.score },
+          },
+        }
+      }),
   }
 
   async function handleSave() {
@@ -84,18 +107,30 @@ export function CharacterSheet({ character, token, onSave, onDelete, onBack, onR
           penalty: hp.penalty,
         }),
       })
+      setDirty(false)
     } finally {
       setSaving(false)
     }
+  }
+
+  /** Leaving throws the draft away, so it has to be worth throwing away. */
+  function handleBack() {
+    if (dirty && !window.confirm('В листе есть несохранённые правки. Уйти и потерять их?')) return
+    onBack()
   }
 
   return (
     <SheetProvider value={api}>
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="ghost" onClick={onBack}>
+          <Button variant="ghost" onClick={handleBack}>
             ← К списку
           </Button>
+          {dirty && (
+            <span className="text-xs text-amber-600 dark:text-amber-500">
+              есть несохранённые правки
+            </span>
+          )}
           <div className="ml-auto flex gap-2">
             <SheetVersions token={token} characterId={character.id} onRestored={onReload} />
             <Button variant="destructive" onClick={onDelete}>

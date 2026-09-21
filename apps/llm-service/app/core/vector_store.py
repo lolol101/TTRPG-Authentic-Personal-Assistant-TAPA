@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 import chromadb
@@ -91,14 +92,45 @@ def _query_surviving_reindex(
     raise AssertionError("unreachable: the loop returns or raises")
 
 
-def query(embedding: list[float], k: int, ruleset: str | None = None) -> list[dict[str, Any]]:
+def where_clause(ruleset: str | None, categories: Sequence[str] | None) -> dict[str, Any] | None:
+    """The metadata filter for a search, or None to search everything.
+
+    Kept separate from the query so the combination is testable without an
+    index: Chroma answers a malformed filter with zero hits rather than an
+    error, so a wrong clause here looks exactly like "the rules say nothing".
+    """
+    terms: list[dict[str, Any]] = []
+    if ruleset:
+        terms.append({"ruleset": {"$eq": ruleset}})
+    if categories:
+        terms.append(
+            {"category": {"$eq": categories[0]}}
+            if len(categories) == 1
+            else {"category": {"$in": list(categories)}}
+        )
+
+    if not terms:
+        return None
+    # Chroma rejects $and with a single operand.
+    return terms[0] if len(terms) == 1 else {"$and": terms}
+
+
+def query(
+    embedding: list[float],
+    k: int,
+    ruleset: str | None = None,
+    categories: Sequence[str] | None = None,
+) -> list[dict[str, Any]]:
     """Return up to *k* nearest documents as {id, text, metadata, distance}.
 
     *ruleset* restricts the search to one game system. Without it a question
     about D&D could be answered out of the Pathfinder books, which is worse
     than finding nothing.
+
+    *categories* restricts it further to the parts of the corpus that can
+    answer this search at all — see sheet_plan.AREA_CATEGORIES.
     """
-    where = {"ruleset": ruleset} if ruleset else None
+    where = where_clause(ruleset, categories)
     result = _query_surviving_reindex(embedding, k, where)
 
     ids = result["ids"][0]

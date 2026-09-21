@@ -34,7 +34,10 @@ SHEET_CHANGE_TOOL: dict[str, Any] = {
                                 "description": (
                                     "Что менять. Числа: hp_current, hp_max, level, ac, "
                                     "speed, str_mod, dex_mod, con_mod, int_mod, wis_mod, "
-                                    "cha_mod, sheet_data.hero_points, sheet_data.dying, "
+                                    "cha_mod, sheet_data.ability_scores.<str|dex|con|int|"
+                                    "wis|cha> (значение характеристики — заполняй его вместе "
+                                    "с соответствующим *_mod, значение = 10 + 2×модификатор), "
+                                    "sheet_data.hero_points, sheet_data.dying, "
                                     "sheet_data.wounded, sheet_data.conditions.<состояние>, "
                                     "sheet_data.stats.<характеристика>.rank|item|temporary. "
                                     "Текст: name, ancestry, background, class_name, "
@@ -58,11 +61,25 @@ SHEET_CHANGE_TOOL: dict[str, Any] = {
                                     "Новое значение целиком, а не разница. Для умения — "
                                     "untrained, trained, expert, master или legendary. "
                                     "Для карточек — весь список целиком, каким он должен "
-                                    "стать: каждая карточка это объект с полем name и "
-                                    "плоскими полями вроде level, price, bulk, traits, "
-                                    "description. Если знаешь книгу-источник, укажи её в "
-                                    "поле source; если пишешь по памяти — не указывай, "
-                                    "карточка будет помечена автоматически."
+                                    "стать. Карточка это плоский объект; заполняй в ней "
+                                    "все поля, которые найденная страница правил "
+                                    "действительно называет, а не только name. "
+                                    "Черта: name, level, slot (класса/происхождения/"
+                                    "навыков/общая), actions, rarity, traits, "
+                                    "prerequisites, frequency, trigger, requirements, "
+                                    "description, special. "
+                                    "Предмет: name, level, price, bulk, quantity, usage, "
+                                    "hands, rarity, traits, invested, activate, frequency, "
+                                    "trigger, requirements, description. "
+                                    "Заклинание: name, level (круг), actions (сотворение), "
+                                    "prepared, rarity, traditions, traits, components, "
+                                    "range, area, targets, save, duration, description, "
+                                    "heightened. "
+                                    "Поле, о котором страница молчит, оставляй пустым — "
+                                    "не придумывай ни предварительные условия, ни цену, "
+                                    "ни стоимость в действиях. Если знаешь книгу-источник, "
+                                    "укажи её в поле source; если пишешь по памяти — не "
+                                    "указывай, карточка будет помечена автоматически."
                                 ),
                             },
                             "reason": {
@@ -187,12 +204,16 @@ def parse_clarification(raw_arguments: str) -> dict[str, Any] | None:
 
 REWRITE_SEARCH_QUERY = "search_the_rulebooks_in_english"
 
+#: Past this a "query" is the model answering the question instead of naming
+#: it, and embedding its prose retrieves its own guesses, not the rule.
+MAX_QUERY_CHARS = 200
+
 SEARCH_QUERY_TOOL: dict[str, Any] = {
     "type": "function",
     "function": {
         "name": REWRITE_SEARCH_QUERY,
         "description": (
-            "Дать английский поисковый запрос по книге правил для вопроса "
+            "Дать английские поисковые запросы по книге правил для вопроса "
             "игрока. Книги правил на английском, поэтому русский вопрос "
             "находит нужную страницу заметно хуже. Вызывай, если вопрос не "
             "на английском или сформулирован разговорно. Если вопрос уже "
@@ -201,37 +222,63 @@ SEARCH_QUERY_TOOL: dict[str, Any] = {
         "parameters": {
             "type": "object",
             "properties": {
-                "query": {
-                    "type": "string",
+                "queries": {
+                    "type": "array",
+                    "items": {"type": "string"},
                     "description": (
-                        "Короткий запрос из терминов правил: название "
-                        "действия, черты, заклинания, снаряжения, состояния. "
-                        "Не переводи дословно и не пиши предложение — пиши "
-                        "то, как это называется в книге. Пример: вопрос "
+                        "По одному короткому запросу на каждое правило, о "
+                        "котором спрашивают. Запрос — это термин из книги: "
+                        "название действия, черты, заклинания, снаряжения, "
+                        "состояния. Не переводи дословно и не пиши "
+                        "предложение — пиши то, как это называется в книге. "
                         "«Что делает действие Устрашение?» → "
-                        "«Demoralize action»."
+                        "[«Demoralize action»]. Если в вопросе несколько "
+                        "правил сразу, назови каждое отдельным запросом: "
+                        "«Могу ли я схватить противника, если сам напуган?» → "
+                        "[«Grapple action», «Frightened condition»]. Не дроби "
+                        "одно правило на несколько запросов и не добавляй "
+                        "правила, о которых не спрашивали."
                     ),
                 }
             },
-            "required": ["query"],
+            "required": ["queries"],
         },
     },
 }
 
 
-def parse_search_query(raw_arguments: str) -> str | None:
-    """Reads a rewrite call, or returns None if it says nothing usable."""
+def parse_search_queries(raw_arguments: str) -> list[str]:
+    """Reads a rewrite call, dropping whatever it says that is unusable.
+
+    Returns every query the call named, in order and without duplicates;
+    an empty list means the request is left on the search it already had.
+    """
     try:
         parsed = json.loads(raw_arguments)
     except (json.JSONDecodeError, TypeError):
-        return None
+        return []
     if not isinstance(parsed, dict):
-        return None
+        return []
 
-    query = str(parsed.get("query") or "").strip()
-    # A "rewrite" that came back as a whole paragraph is the model answering
-    # the question instead of naming it; embedding that buys nothing.
-    return query if query and len(query) <= 200 else None
+    raw = parsed.get("queries")
+    if isinstance(raw, str):
+        # Models answer a list-valued argument with a bare string often
+        # enough that refusing it would cost the request its rewrite.
+        raw = [raw]
+    elif not isinstance(raw, list):
+        raw = [parsed.get("query")]
+
+    queries: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        query = item.strip()
+        if not query or len(query) > MAX_QUERY_CHARS or query.casefold() in seen:
+            continue
+        seen.add(query.casefold())
+        queries.append(query)
+    return queries
 
 
 PLAN_SHEET_WORK = "plan_sheet_work"

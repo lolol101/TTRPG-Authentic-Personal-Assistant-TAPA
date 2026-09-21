@@ -273,6 +273,15 @@ def _clean_card(raw: Any, label: str, index: int) -> dict[str, Any]:
             card[key] = value
         elif value is None or isinstance(value, str):
             card[key] = _as_text(value, f"{label}: {key}")
+        elif isinstance(value, list) and all(
+            isinstance(item, (str, int, float)) and not isinstance(item, bool) for item in value
+        ):
+            # A card's plural fields — traits above all — are one line on the
+            # sheet and a list to the model, which is how a correctly filled
+            # "traits": ["fighter", "flourish"] used to be dropped on the
+            # floor without a word. Same reading as _as_text gives the plural
+            # text columns.
+            card[key] = _as_text(value, f"{label}: {key}")
 
     card["name"] = name
     # Stamped, not trusted: the catalogue is not indexed yet, so this text
@@ -431,6 +440,29 @@ def _resolve_sheet(character: Character, change: ProposedChange) -> ResolvedChan
             label="Пункты героизма",
             before=before,
             verified=verify_workings(change, before, number, "Пункты героизма"),
+            section=section_for(change.path),
+        )
+
+    if parts[:2] == ["sheet_data", "ability_scores"] and len(parts) == 3:
+        ability = parts[2]
+        if ability not in rules.ABILITY_LABEL:
+            raise ChangeRejected(f"Неизвестная характеристика: {ability}")
+        # The sheet shows a score next to every modifier — see the frontend's
+        # scoreForModifier — but the model can only ever set the *_mod column
+        # unless this path exists, which left every AI-built character
+        # showing a mismatch the model had no way to fix.
+        label = f"{rules.ABILITY_LABEL[ability]} (значение)"
+        number = _as_int(change.value, label)
+        if not 1 <= number <= 30:
+            raise ChangeRejected(f"{label}: {number} вне допустимого диапазона 1…30")
+        before = (sheet.get("ability_scores") or {}).get(ability, 10)
+        return ResolvedChange(
+            path=change.path,
+            value=number,
+            reason=change.reason,
+            label=label,
+            before=before,
+            verified=verify_workings(change, before, number, label),
             section=section_for(change.path),
         )
 

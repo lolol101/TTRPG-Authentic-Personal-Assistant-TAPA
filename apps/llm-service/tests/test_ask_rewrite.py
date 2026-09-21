@@ -1,9 +1,10 @@
-"""The /ask side of rewriting: search the rewrite too, keep the original.
+"""The /ask side of rewriting: search every named concept, keep the original.
 
 What this protects: the rewrite is an addition, never a replacement. A
 question whose rewrite missed must still be served by the search it would
-have had, and a sheet request — already split into English area queries by
-the planner — must not pay for a second rewriting call on top.
+have had, a question naming two rules must be searched for both, and a
+sheet request — already split into English area queries by the planner —
+must not pay for a second rewriting call on top.
 """
 
 from app.api import ask as ask_api
@@ -31,7 +32,7 @@ def _payload(**overrides):
 def _record_queries(monkeypatch) -> list[str]:
     queries: list[str] = []
 
-    def _fake_retrieve(query, k, ruleset=None):
+    def _fake_retrieve(query, k, ruleset=None, categories=None):
         queries.append(query)
         return [_hit(query)]
 
@@ -42,7 +43,7 @@ def _record_queries(monkeypatch) -> list[str]:
 
 def test_both_phrasings_are_searched(monkeypatch) -> None:
     queries = _record_queries(monkeypatch)
-    monkeypatch.setattr(ask_api, "rewrite_for_search", lambda question: "Demoralize action")
+    monkeypatch.setattr(ask_api, "search_queries_for", lambda question: ["Demoralize action"])
 
     retrieved, _, _ = ask_api._prepare(_payload())
 
@@ -50,12 +51,33 @@ def test_both_phrasings_are_searched(monkeypatch) -> None:
     assert len(retrieved) == 2
 
 
+def test_every_named_concept_gets_its_own_search(monkeypatch) -> None:
+    """The measured failure this exists for: one query for a two-rule
+    question found 8 of 12 concepts across six questions, one query per
+    concept found 11 — the miss was the concept the rewrite dropped, not
+    a page ranked too deep."""
+    queries = _record_queries(monkeypatch)
+    monkeypatch.setattr(
+        ask_api,
+        "search_queries_for",
+        lambda question: ["Grapple action", "Frightened condition"],
+    )
+
+    ask_api._prepare(_payload(question="Могу ли я схватить, если напуган?"))
+
+    assert queries == [
+        "Grapple action",
+        "Frightened condition",
+        "Могу ли я схватить, если напуган?",
+    ]
+
+
 def test_the_english_hits_come_first(monkeypatch) -> None:
     """Measured on this index, the English phrasing is the one that ranks the
     answering page in the top few — and the model reads the front of its
     context most closely."""
     queries = _record_queries(monkeypatch)
-    monkeypatch.setattr(ask_api, "rewrite_for_search", lambda question: "Demoralize action")
+    monkeypatch.setattr(ask_api, "search_queries_for", lambda question: ["Demoralize action"])
 
     retrieved, _, _ = ask_api._prepare(_payload())
 
@@ -65,7 +87,7 @@ def test_the_english_hits_come_first(monkeypatch) -> None:
 
 def test_without_a_rewrite_the_question_is_searched_alone(monkeypatch) -> None:
     queries = _record_queries(monkeypatch)
-    monkeypatch.setattr(ask_api, "rewrite_for_search", lambda question: None)
+    monkeypatch.setattr(ask_api, "search_queries_for", lambda question: [])
 
     ask_api._prepare(_payload())
 
@@ -73,9 +95,11 @@ def test_without_a_rewrite_the_question_is_searched_alone(monkeypatch) -> None:
 
 
 def test_the_same_page_found_by_both_phrasings_appears_once(monkeypatch) -> None:
-    monkeypatch.setattr(ask_api, "retrieve", lambda query, k, ruleset=None: [_hit("Demoralize")])
+    monkeypatch.setattr(
+        ask_api, "retrieve", lambda query, k, ruleset=None, categories=None: [_hit("Demoralize")]
+    )
     monkeypatch.setattr(ask_api, "plan_for", lambda question: [])
-    monkeypatch.setattr(ask_api, "rewrite_for_search", lambda question: "Demoralize action")
+    monkeypatch.setattr(ask_api, "search_queries_for", lambda question: ["Demoralize action"])
 
     retrieved, _, _ = ask_api._prepare(_payload())
 
@@ -91,7 +115,7 @@ def test_rewriting_can_be_turned_off(monkeypatch) -> None:
     def _must_not_run(question):
         raise AssertionError("rewriting is off; no provider call may be made")
 
-    monkeypatch.setattr(ask_api, "rewrite_for_search", _must_not_run)
+    monkeypatch.setattr(ask_api, "search_queries_for", _must_not_run)
 
     ask_api._prepare(_payload())
 
@@ -109,7 +133,7 @@ def test_a_split_sheet_request_is_not_rewritten(monkeypatch) -> None:
     def _must_not_run(question):
         raise AssertionError("a planned request needs no rewriting")
 
-    monkeypatch.setattr(ask_api, "rewrite_for_search", _must_not_run)
+    monkeypatch.setattr(ask_api, "search_queries_for", _must_not_run)
 
     ask_api._prepare(
         _payload(
@@ -128,7 +152,9 @@ def test_the_follow_up_context_is_rewritten_too(monkeypatch) -> None:
     _record_queries(monkeypatch)
     seen: list[str] = []
     monkeypatch.setattr(
-        ask_api, "rewrite_for_search", lambda question: seen.append(question) or "heavy armour"
+        ask_api,
+        "search_queries_for",
+        lambda question: seen.append(question) or ["heavy armour"],
     )
 
     ask_api._prepare(

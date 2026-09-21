@@ -257,11 +257,131 @@ def _value_of(system: dict, field: str) -> str | int | None:
     return raw
 
 
+#: Foundry's action costs. "passive" is the absence of one, so it prints
+#: nothing rather than the word.
+_ACTION_WORDS = {"reaction": "Reaction", "free": "Free Action"}
+
+_ISO_UNITS = {"H": "hour", "M": "minute", "S": "second"}
+_ISO_DURATION = re.compile(r"^PT(\d+)([HMS])$")
+
+#: PF2e writes a tenth of a Bulk as "L" for light, and no Bulk at all as a
+#: dash. The dataset stores them as 0.1 and 0.
+_BULK_WORDS = {0.1: "L", 0: "—"}
+
+
+def _action_cost(system: dict) -> str:
+    """"Actions 2", "Reaction", or nothing at all for a passive ability."""
+    kind = str(_value_of(system, "actionType") or "")
+    if kind in _ACTION_WORDS:
+        return _ACTION_WORDS[kind]
+    if kind != "action":
+        return ""
+
+    count = _value_of(system, "actions")
+    if not isinstance(count, int):
+        return ""
+    return f"Actions {count}"
+
+
+def _frequency_text(raw: object) -> str:
+    """{"max": 1, "per": "PT10M"} -> "once per 10 minutes".
+
+    The period is ISO-8601 for anything shorter than a day, which is not a
+    thing to put in front of a player: "Frequency once per PT10M" was the
+    alternative.
+    """
+    if not isinstance(raw, dict):
+        return ""
+    per = str(raw.get("per") or "").strip()
+    if not per:
+        return ""
+
+    match = _ISO_DURATION.match(per)
+    if match:
+        amount, unit_letter = int(match.group(1)), match.group(2)
+        unit = _ISO_UNITS[unit_letter]
+        per = unit if amount == 1 else f"{amount} {unit}s"
+
+    max_uses = raw.get("max")
+    times = "once" if max_uses in (1, None) else f"{max_uses} times"
+    return f"{times} per {per}"
+
+
+def _price_text(raw: object) -> str:
+    """{"value": {"gp": 50}} -> "50 gp". Order follows the coin hierarchy."""
+    if not isinstance(raw, dict):
+        return ""
+    coins = raw.get("value")
+    if not isinstance(coins, dict):
+        return ""
+    parts = [f"{coins[coin]} {coin}" for coin in ("pp", "gp", "sp", "cp") if coins.get(coin)]
+    return ", ".join(parts)
+
+
+def _bulk_text(raw: object) -> str:
+    value = raw.get("value") if isinstance(raw, dict) else raw
+    if not isinstance(value, (int, float)):
+        return ""
+    return _BULK_WORDS.get(value, str(value))
+
+
+def _prerequisites_text(system: dict) -> str:
+    """{"value": [{"value": "trained in Athletics"}]} -> the joined list.
+
+    Half the entries carrying the field store an empty list, and the items
+    are one-key dicts rather than strings.
+    """
+    raw = system.get("prerequisites")
+    items = raw.get("value") if isinstance(raw, dict) else raw
+    if not isinstance(items, list):
+        return ""
+
+    names = []
+    for item in items:
+        text = item.get("value") if isinstance(item, dict) else item
+        text = str(text or "").strip()
+        if text:
+            names.append(text)
+    return "; ".join(names)
+
+
+def _save_text(raw: object) -> str:
+    """{"save": {"basic": true, "statistic": "reflex"}} -> "basic Reflex"."""
+    if not isinstance(raw, dict):
+        return ""
+    save = raw.get("save")
+    if not isinstance(save, dict):
+        return ""
+    statistic = str(save.get("statistic") or "").strip()
+    if not statistic:
+        return ""
+    return f"{'basic ' if save.get('basic') else ''}{statistic.title()}"
+
+
+def _area_text(raw: object) -> str:
+    """{"type": "burst", "value": 20} -> "20-foot burst"."""
+    if not isinstance(raw, dict):
+        return ""
+    details = str(raw.get("details") or "").strip()
+    if details:
+        return details
+    shape = str(raw.get("type") or "").strip()
+    value = raw.get("value")
+    if value and shape:
+        return f"{value}-foot {shape}"
+    return shape or ""
+
+
 def _header(entry: dict, text_parts: list[str]) -> None:
-    """Prepend what a search would match on but the prose never repeats.
+    """Prepend the stat block: what a page states as a field, not as prose.
 
     A spell's own description rarely contains the words "spell", its level or
-    its traits, yet those are exactly what a question names.
+    its traits, yet those are exactly what a question names. The same holds
+    for everything a player copies onto a sheet — an action cost, a price, a
+    prerequisite: each is stated once as a field and never repeated in the
+    description. Reported live: the assistant left those card fields empty,
+    and measured on the built index, only 1.8% of feat chunks mentioned a
+    prerequisite at all — there was nothing there for it to copy.
     """
     system = entry.get("system") or {}
     facts: list[str] = []
@@ -278,9 +398,43 @@ def _header(entry: dict, text_parts: list[str]) -> None:
     if traits:
         facts.append("Traits: " + ", ".join(str(t) for t in traits))
 
+    # Common is the default and says nothing; the other three are the point
+    # of the field — a rare feat is not one to hand a player unasked.
+    rarity = str(traits_field.get("rarity") or "").strip()
+    if rarity and rarity != "common":
+        facts.append(f"Rarity {rarity}")
+
     traditions = traits_field.get("traditions") or []
     if traditions:
         facts.append("Traditions: " + ", ".join(str(t) for t in traditions))
+
+    # Which kind of slot a feat fills — class, ancestry, skill, general. The
+    # sheet keeps those in separate groups, so this is what decides where a
+    # chosen feat belongs.
+    category = system.get("category")
+    if isinstance(category, str) and category.strip():
+        facts.append(f"Category {category.strip()}")
+
+    action_cost = _action_cost(system)
+    if action_cost:
+        facts.append(action_cost)
+
+    for field, label, render in (
+        ("frequency", "Frequency", _frequency_text),
+        ("price", "Price", _price_text),
+        ("bulk", "Bulk", _bulk_text),
+        ("defense", "Saving Throw", _save_text),
+        ("area", "Area", _area_text),
+    ):
+        rendered = render(system.get(field))
+        if rendered:
+            facts.append(f"{label} {rendered}")
+
+    for field, label in (("usage", "Usage"), ("hands", "Hands"), ("target", "Targets")):
+        value = _value_of(system, field)
+        text = str(value).strip() if value not in (None, "") else ""
+        if text:
+            facts.append(f"{label} {text.replace('-', ' ')}")
 
     for field, label in (("time", "Cast"), ("range", "Range"), ("duration", "Duration")):
         value = _value_of(system, field)
@@ -290,6 +444,16 @@ def _header(entry: dict, text_parts: list[str]) -> None:
     text_parts.append(entry["name"])
     if facts:
         text_parts.append(" · ".join(facts))
+
+    # Own lines: both run long enough to read badly inside the ` · ` run,
+    # and both are conditions to check before taking the thing at all.
+    prerequisites = _prerequisites_text(system)
+    if prerequisites:
+        text_parts.append(f"Prerequisites {prerequisites}")
+
+    requirements = str(_value_of(system, "requirements") or "").strip()
+    if requirements:
+        text_parts.append(f"Requirements {requirements}")
 
 
 def entry_to_page(

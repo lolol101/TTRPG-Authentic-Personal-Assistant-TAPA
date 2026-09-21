@@ -1,4 +1,4 @@
-from app.core.tools import parse_change_arguments
+from app.core.tools import SHEET_CHANGE_TOOL, parse_change_arguments
 
 
 def test_reads_the_documented_shape() -> None:
@@ -51,3 +51,23 @@ def test_the_workings_are_carried_through_when_given() -> None:
     assert parse_change_arguments(raw) == [
         {"path": "hp_current", "value": 28, "reason": "", "basis": 40, "delta": -12}
     ]
+
+
+def test_the_card_field_lists_name_what_a_stat_block_holds() -> None:
+    """A card arriving with only a name was partly this: the schema named
+    level, price, bulk and description as examples and left the model to
+    guess the rest existed."""
+    described = SHEET_CHANGE_TOOL["function"]["parameters"]["properties"]["changes"]["items"][
+        "properties"
+    ]["value"]["description"]
+
+    for field in ("prerequisites", "requirements", "frequency", "actions", "traits", "special"):
+        assert field in described
+
+
+def test_the_card_schema_tells_the_model_not_to_invent_a_missing_field() -> None:
+    described = SHEET_CHANGE_TOOL["function"]["parameters"]["properties"]["changes"]["items"][
+        "properties"
+    ]["value"]["description"]
+
+    assert "оставляй пустым" in described

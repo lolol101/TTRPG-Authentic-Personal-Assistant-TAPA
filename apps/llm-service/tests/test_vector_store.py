@@ -158,3 +158,57 @@ def test_upsert_overwrites_existing_id() -> None:
 
     assert len(results) == 1
     assert results[0]["text"] == "new"
+
+
+def test_where_clause_is_none_when_nothing_is_restricted() -> None:
+    assert vector_store.where_clause(None, None) is None
+
+
+def test_where_clause_filters_on_one_ruleset() -> None:
+    assert vector_store.where_clause("pf2e", None) == {"ruleset": {"$eq": "pf2e"}}
+
+
+def test_where_clause_uses_eq_for_a_single_category() -> None:
+    """Not $in with one operand: the clause reads as what it means."""
+    assert vector_store.where_clause(None, ("backgrounds",)) == {"category": {"$eq": "backgrounds"}}
+
+
+def test_where_clause_uses_in_for_several_categories() -> None:
+    assert vector_store.where_clause(None, ("classes", "class-features")) == {
+        "category": {"$in": ["classes", "class-features"]}
+    }
+
+
+def test_where_clause_combines_ruleset_and_categories_with_and() -> None:
+    """Chroma rejects $and with a single operand, so it appears only here."""
+    assert vector_store.where_clause("pf2e", ("feats",)) == {
+        "$and": [{"ruleset": {"$eq": "pf2e"}}, {"category": {"$eq": "feats"}}]
+    }
+
+
+def test_an_empty_category_list_restricts_nothing() -> None:
+    """sheet_plan returns None for an unmapped area, but a caller passing an
+    empty tuple must not produce a clause that matches no chunk at all —
+    Chroma answers a filter nothing satisfies with zero hits, not an error."""
+    assert vector_store.where_clause(None, ()) is None
+    assert vector_store.where_clause("pf2e", ()) == {"ruleset": {"$eq": "pf2e"}}
+
+
+def test_a_category_filter_actually_narrows_a_real_query() -> None:
+    """The clause is only useful if Chroma honours it — see the note on
+    where_clause: a malformed filter looks exactly like an empty corpus."""
+    vector_store.upsert(
+        ids=["c1", "c2"],
+        embeddings=[[1.0, 0.0], [0.9, 0.1]],
+        documents=["Fighter class entry", "Basic Maneuver feat"],
+        metadatas=[
+            {"category": "classes", "ruleset": "pf2e", "title": "Fighter", "url": "u1"},
+            {"category": "feats", "ruleset": "pf2e", "title": "Basic Maneuver", "url": "u2"},
+        ],
+    )
+
+    everything = vector_store.query([1.0, 0.0], k=5, ruleset="pf2e")
+    classes_only = vector_store.query([1.0, 0.0], k=5, ruleset="pf2e", categories=("classes",))
+
+    assert {hit["id"] for hit in everything} == {"c1", "c2"}
+    assert [hit["id"] for hit in classes_only] == ["c1"]

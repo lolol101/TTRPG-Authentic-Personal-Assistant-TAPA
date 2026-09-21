@@ -138,3 +138,30 @@ def test_a_provider_failure_degrades_to_the_simple_path(monkeypatch) -> None:
     monkeypatch.setattr(sheet_plan, "_ask_for_plan", _boom)
 
     assert sheet_plan.plan_for("Собери плута") == []
+
+
+def test_every_mapped_area_is_a_real_sheet_area() -> None:
+    """The two tables sit next to each other and must not drift: a category
+    mapped for an area the planner cannot name would never be used."""
+    assert set(sheet_plan.AREA_CATEGORIES) <= set(sheet_plan.SHEET_AREAS)
+
+
+def test_categories_for_names_the_sections_that_answer_an_area() -> None:
+    assert sheet_plan.categories_for("class") == ("classes", "class-features")
+    assert sheet_plan.categories_for("background") == ("backgrounds",)
+
+
+def test_skills_is_deliberately_unmapped() -> None:
+    """No category holds the rules chapters about trained/expert ranks —
+    measured, filtering "skills proficiency trained rank" moved 0 of 5
+    on-section hits to 0 of 5. So it searches everything, as before."""
+    assert sheet_plan.categories_for("skills") is None
+    assert "skills" in sheet_plan.SHEET_AREAS
+
+
+def test_bio_is_unmapped_because_it_needs_no_rules() -> None:
+    assert sheet_plan.categories_for("bio") is None
+
+
+def test_an_area_the_planner_invented_restricts_nothing() -> None:
+    assert sheet_plan.categories_for("nonsense") is None

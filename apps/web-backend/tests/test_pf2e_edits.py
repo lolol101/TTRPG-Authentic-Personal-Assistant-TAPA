@@ -98,6 +98,38 @@ def test_refuses_an_unknown_statistic() -> None:
         resolve_change(_character(), ProposedChange("sheet_data.stats.cooking.rank", "expert"))
 
 
+def test_accepts_an_ability_score_paired_with_its_modifier() -> None:
+    """The sheet shows a score next to every modifier — see the frontend's
+    scoreForModifier — but until this path existed the model could only ever
+    set the *_mod column, so every AI-built character showed a mismatch."""
+    resolved = resolve_change(
+        _character(sheet_data={"ability_scores": {"str": 10}}),
+        ProposedChange("sheet_data.ability_scores.str", 18, "СИЛ 18"),
+    )
+
+    assert resolved.value == 18
+    assert resolved.before == 10
+    assert resolved.section == "Основное"  # groups with str_mod, not sheet_data.*
+
+
+def test_ability_score_defaults_its_before_value_to_ten() -> None:
+    resolved = resolve_change(
+        _character(), ProposedChange("sheet_data.ability_scores.dex", 14)
+    )
+
+    assert resolved.before == 10
+
+
+def test_refuses_an_unknown_ability() -> None:
+    with pytest.raises(ChangeRejected, match="Неизвестная характеристика"):
+        resolve_change(_character(), ProposedChange("sheet_data.ability_scores.luck", 14))
+
+
+def test_refuses_an_ability_score_out_of_range() -> None:
+    with pytest.raises(ChangeRejected, match="вне допустимого диапазона"):
+        resolve_change(_character(), ProposedChange("sheet_data.ability_scores.str", 99))
+
+
 def test_rejects_a_non_numeric_value_for_a_number_field() -> None:
     with pytest.raises(ChangeRejected, match="ожидалось число"):
         resolve_change(_character(), ProposedChange("hp_current", "много"))
@@ -607,3 +639,51 @@ def test_a_computed_modifier_is_still_refused() -> None:
             _character(),
             ProposedChange(path="sheet_data.skills.Acrobatics.modifier", value=6),
         )
+
+
+def test_a_cards_list_valued_field_is_joined_rather_than_dropped() -> None:
+    """Observed live once the corpus carried traits: the model filled
+    "traits": ["barbarian", "fighter", "flourish"] correctly and the card
+    arrived without them — a list is neither a scalar nor a string, so it
+    fell through. The sheet shows traits as one line, same as languages."""
+    resolved = resolve_change(
+        _character(),
+        ProposedChange(
+            "sheet_data.class_feats",
+            [{"name": "Sudden Charge", "traits": ["barbarian", "fighter", "flourish"]}],
+        ),
+    )
+
+    assert resolved.value[0]["traits"] == "barbarian, fighter, flourish"
+
+
+def test_a_cards_numeric_list_is_joined_too() -> None:
+    resolved = resolve_change(
+        _character(),
+        ProposedChange("sheet_data.spells", [{"name": "Fireball", "levels": [3, 4, 5]}]),
+    )
+
+    assert resolved.value[0]["levels"] == "3, 4, 5"
+
+
+def test_a_nested_list_on_a_card_is_still_refused() -> None:
+    """Only flat lists of words are readable as a line; anything richer is
+    the model improvising a shape the sheet cannot render."""
+    resolved = resolve_change(
+        _character(),
+        ProposedChange(
+            "sheet_data.class_feats",
+            [{"name": "Weird Feat", "traits": [{"value": "fighter"}]}],
+        ),
+    )
+
+    assert "traits" not in resolved.value[0]
+
+
+def test_an_empty_list_on_a_card_becomes_an_empty_line() -> None:
+    resolved = resolve_change(
+        _character(),
+        ProposedChange("sheet_data.class_feats", [{"name": "Plain Feat", "traits": []}]),
+    )
+
+    assert resolved.value[0]["traits"] == ""

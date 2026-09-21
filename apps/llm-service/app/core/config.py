@@ -68,6 +68,15 @@ class Settings(BaseSettings):
     embedding_base_url: str = "http://localhost:11434"
     embedding_timeout_seconds: float = 120.0
 
+    # Retries inside one embedding call. A full re-index is hours of
+    # back-to-back requests to a local server, and a single transient
+    # timeout used to end the whole run — measured, one did, 2029 chunks
+    # into 13511. Retried in place rather than failed over: the fallback
+    # embeds into a different vector space, and switching mid-corpus would
+    # leave one collection holding two.
+    embedding_retry_attempts: int = 3
+    embedding_retry_backoff_seconds: float = 2.0
+
     # Embeddings stay off the GPU so the generation model keeps the whole card.
     # A large model fills VRAM by itself; letting the embedder onto the GPU too
     # makes Ollama evict one for the other, and every ask pays a model reload
@@ -81,7 +90,18 @@ class Settings(BaseSettings):
     embedding_fallback_model_id: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
     chroma_persist_dir: str = _default_chroma_dir()
-    chroma_collection_prefix: str = "pf2e_actions_ru"
+
+    # Names the generation of the corpus, not just the game system: the
+    # chunks carry the whole stat block — prerequisites, action cost, price,
+    # Bulk — where the previous build had only level and traits. Switching
+    # the prefix is what promotes a freshly built index, and switching it
+    # back is the rollback, because each generation keeps its own collection
+    # rather than overwriting the one being served.
+    #
+    # (The old "pf2e_actions_ru" was a stale name besides: the corpus has
+    # been the English Foundry packs, not Russian pf2.ru action pages, since
+    # that source was replaced.)
+    chroma_collection_prefix: str = "pf2e_statblock"
     retrieval_k: int = 5
 
     # The rulebooks are English; a Russian question finds the right page far
@@ -89,6 +109,26 @@ class Settings(BaseSettings):
     # extra completion and one extra embedding per ordinary question — turn
     # it off to get the single plain search back.
     retrieval_rewrite_query: bool = True
+
+    # How many rules one question may be searched for separately. A question
+    # naming two of them ("можно ли схватить, если я напуган") loses one
+    # entirely when it is named as a single query — measured, 8 of 12
+    # concepts retrieved against 11 of 12 when each got its own query. Each
+    # one past the first costs an embedding and a search, not a completion,
+    # but they all land in the same prompt: past a few, the context the
+    # retrieval exists to protect is what is being spent. 1 restores the
+    # single-query behaviour.
+    retrieval_max_search_queries: int = 3
+
+    # On a sheet-building request, restrict each area's search to the chunk
+    # categories that area can actually be answered from. Measured on the
+    # live index: a build-style query put 2.44 of 5 context slots in the
+    # right section, and "fighter class features level 1" put 0 of 5 —
+    # five archetype feats and no class feature at all. Filtered, 5 of 5.
+    # Ordinary questions stay unfiltered: there the same measurement moved
+    # 11 of 12 cases to 12 of 12, which is not worth the risk of a wrong
+    # filter. Turn this off to search the whole index for every area.
+    retrieval_filter_by_section: bool = True
 
     # What the dialogue may take of the model's window. The rules context is
     # retrieved fresh every turn and is the point of the app, so it is served

@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react'
 import type { Character } from '@/lib/api'
-import { EMPTY_COMPONENTS, type AbilityKey, type StatComponents } from '@/rulesets/pf2e/domain'
+import { normalizeComponents, type AbilityKey, type StatComponents } from '@/rulesets/pf2e/domain'
 import type { Pf2eSheetData } from '@/rulesets/pf2e/types'
 
 export interface SheetApi {
@@ -12,6 +12,14 @@ export interface SheetApi {
   componentsFor: (key: string) => StatComponents
   setComponents: (key: string, next: StatComponents) => void
   abilityMod: (ability: AbilityKey) => number
+  /**
+   * Writes a score and its modifier together.
+   *
+   * The two live apart — the modifier in a typed column the backend queries,
+   * the score in sheet_data — so keeping them in step takes one update that
+   * touches both, not two that race each other.
+   */
+  setAbility: (ability: AbilityKey, next: { score: number; modifier: number }) => void
 }
 
 const SheetContext = createContext<SheetApi | null>(null)
@@ -30,5 +38,5 @@ export function toNumber(raw: string): number {
 }
 
 export function componentsOf(sheet: Pf2eSheetData, key: string): StatComponents {
-  return sheet.stats?.[key] ?? EMPTY_COMPONENTS
+  return normalizeComponents(sheet.stats?.[key] as StatComponents | undefined)
 }

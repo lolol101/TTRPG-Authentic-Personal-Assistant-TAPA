@@ -107,3 +107,101 @@ def test_deduplication_does_not_split_a_full_batch(monkeypatch) -> None:
     ingest.ingest_records(records, _FakeProvider())
 
     assert [call["ids"] for call in calls] == [["a", "b"], ["c"]]
+
+
+# --- resuming an interrupted build ---------------------------------------
+
+
+def test_resume_skips_what_the_store_already_holds(monkeypatch) -> None:
+    """A full build is hours of embedding calls; one timeout used to mean
+    starting again from nothing. Ids hash the page url, so they are stable
+    across runs and a second pass can tell done from outstanding."""
+    records = [
+        {"id": "a", "text": "первый", "url": "u1", "title": "A", "category": "feats"},
+        {"id": "b", "text": "второй", "url": "u2", "title": "B", "category": "feats"},
+        {"id": "c", "text": "третий", "url": "u3", "title": "C", "category": "feats"},
+    ]
+
+    monkeypatch.setattr(ingest, "already_indexed", lambda rows: {"a", "b"})
+
+    embedded: list[str] = []
+    stored: list[str] = []
+
+    class _Provider:
+        def embed(self, texts):
+            embedded.extend(texts)
+            return [[0.1] for _ in texts]
+
+    monkeypatch.setattr(
+        ingest, "upsert", lambda ids, embeddings, documents, metadatas: stored.extend(ids)
+    )
+
+    written = ingest.ingest_records(records, _Provider(), resume=True)
+
+    assert written == 1
+    assert embedded == ["третий"]
+    assert stored == ["c"]
+
+
+def test_without_resume_everything_is_embedded_again(monkeypatch) -> None:
+    records = [
+        {"id": "a", "text": "первый", "url": "u1", "title": "A", "category": "feats"},
+        {"id": "b", "text": "второй", "url": "u2", "title": "B", "category": "feats"},
+    ]
+
+    called = {"checked": False}
+
+    def _should_not_run(rows):
+        called["checked"] = True
+        return {"a"}
+
+    monkeypatch.setattr(ingest, "already_indexed", _should_not_run)
+
+    class _Provider:
+        def embed(self, texts):
+            return [[0.1] for _ in texts]
+
+    monkeypatch.setattr(ingest, "upsert", lambda **kwargs: None)
+
+    assert ingest.ingest_records(records, _Provider()) == 2
+    assert called["checked"] is False
+
+
+def test_resume_with_nothing_done_yet_writes_everything(monkeypatch) -> None:
+    records = [{"id": "a", "text": "первый", "url": "u1", "title": "A", "category": "feats"}]
+    monkeypatch.setattr(ingest, "already_indexed", lambda rows: set())
+
+    class _Provider:
+        def embed(self, texts):
+            return [[0.1] for _ in texts]
+
+    monkeypatch.setattr(ingest, "upsert", lambda **kwargs: None)
+
+    assert ingest.ingest_records(records, _Provider(), resume=True) == 1
+
+
+def test_already_indexed_asks_the_store_once_for_all_ids(monkeypatch) -> None:
+    """Per-record lookups would trade the embedding calls we are saving for
+    an equal number of store round trips."""
+    asked: list[list[str]] = []
+
+    class _Collection:
+        def get(self, ids, include):
+            asked.append(ids)
+            return {"ids": ["a"]}
+
+    monkeypatch.setattr(ingest, "get_collection", lambda: _Collection())
+
+    records = [{"id": "a"}, {"id": "b"}]
+
+    assert ingest.already_indexed(records) == {"a"}
+    assert asked == [["a", "b"]]
+
+
+def test_already_indexed_on_an_empty_batch_asks_nothing(monkeypatch) -> None:
+    def _no_store():
+        raise AssertionError("the store must not be opened for an empty batch")
+
+    monkeypatch.setattr(ingest, "get_collection", _no_store)
+
+    assert ingest.already_indexed([]) == set()
