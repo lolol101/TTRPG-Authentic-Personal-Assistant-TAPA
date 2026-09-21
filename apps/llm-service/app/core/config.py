@@ -110,6 +110,16 @@ class Settings(BaseSettings):
     # it off to get the single plain search back.
     retrieval_rewrite_query: bool = True
 
+    # How many rules one question may be searched for separately. A question
+    # naming two of them ("можно ли схватить, если я напуган") loses one
+    # entirely when it is named as a single query — measured, 8 of 12
+    # concepts retrieved against 11 of 12 when each got its own query. Each
+    # one past the first costs an embedding and a search, not a completion,
+    # but they all land in the same prompt: past a few, the context the
+    # retrieval exists to protect is what is being spent. 1 restores the
+    # single-query behaviour.
+    retrieval_max_search_queries: int = 3
+
     # On a sheet-building request, restrict each area's search to the chunk
     # categories that area can actually be answered from. Measured on the
     # live index: a build-style query put 2.44 of 5 context slots in the

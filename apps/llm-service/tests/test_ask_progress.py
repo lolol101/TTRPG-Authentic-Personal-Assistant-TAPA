@@ -53,7 +53,7 @@ def _stub_stream(monkeypatch) -> None:
 def test_a_plain_question_reports_rewriting_searching_then_generating(monkeypatch) -> None:
     monkeypatch.setattr(ask_api, "retrieve", lambda *a, **k: [_hit("Grapple")])
     monkeypatch.setattr(ask_api, "plan_for", lambda question: [])
-    monkeypatch.setattr(ask_api, "rewrite_for_search", lambda question: "Grapple action")
+    monkeypatch.setattr(ask_api, "search_queries_for", lambda question: ["Grapple action"])
     _stub_stream(monkeypatch)
 
     events = _events({"question": "Что такое Grapple?"})
@@ -66,7 +66,7 @@ def test_a_split_request_names_each_area_as_it_is_searched(monkeypatch) -> None:
     """The point of the indicator: six searches look identical from outside,
     so say which one is running and how many there are."""
     monkeypatch.setattr(ask_api, "retrieve", lambda *a, **k: [_hit("X")])
-    monkeypatch.setattr(ask_api, "rewrite_for_search", lambda question: None)
+    monkeypatch.setattr(ask_api, "search_queries_for", lambda question: [])
     monkeypatch.setattr(
         ask_api,
         "plan_for",
@@ -96,7 +96,7 @@ def test_progress_comes_before_the_answer_not_after(monkeypatch) -> None:
     """Arriving after the text would make it a log, not an indicator."""
     monkeypatch.setattr(ask_api, "retrieve", lambda *a, **k: [_hit("Grapple")])
     monkeypatch.setattr(ask_api, "plan_for", lambda question: [])
-    monkeypatch.setattr(ask_api, "rewrite_for_search", lambda question: None)
+    monkeypatch.setattr(ask_api, "search_queries_for", lambda question: [])
     _stub_stream(monkeypatch)
 
     names = [name for name, _ in _events({"question": "Что такое Grapple?"})]
@@ -108,7 +108,7 @@ def test_progress_comes_before_the_answer_not_after(monkeypatch) -> None:
 def test_the_answer_still_arrives_unchanged(monkeypatch) -> None:
     monkeypatch.setattr(ask_api, "retrieve", lambda *a, **k: [_hit("Grapple")])
     monkeypatch.setattr(ask_api, "plan_for", lambda question: [])
-    monkeypatch.setattr(ask_api, "rewrite_for_search", lambda question: None)
+    monkeypatch.setattr(ask_api, "search_queries_for", lambda question: [])
     _stub_stream(monkeypatch)
 
     events = _events({"question": "Что такое Grapple?"})

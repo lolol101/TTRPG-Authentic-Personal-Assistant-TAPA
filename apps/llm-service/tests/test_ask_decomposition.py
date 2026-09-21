@@ -40,7 +40,7 @@ def test_a_plain_question_makes_exactly_one_retrieval(monkeypatch) -> None:
 
     monkeypatch.setattr(ask_api, "retrieve", _fake_retrieve)
     monkeypatch.setattr(ask_api, "plan_for", lambda question: [])
-    monkeypatch.setattr(ask_api, "rewrite_for_search", lambda question: None)
+    monkeypatch.setattr(ask_api, "search_queries_for", lambda question: [])
 
     retrieved, _, _ = ask_api._prepare(
         _payload(question="Что делает Grapple?", allow_sheet_edits=False, character_context=None)
@@ -101,7 +101,7 @@ def test_planning_never_blocks_the_answer(monkeypatch) -> None:
         ask_api, "retrieve", lambda query, k, ruleset=None, categories=None: [_hit("Whatever")]
     )
     monkeypatch.setattr(ask_api, "plan_for", lambda question: [])
-    monkeypatch.setattr(ask_api, "rewrite_for_search", lambda question: None)
+    monkeypatch.setattr(ask_api, "search_queries_for", lambda question: [])
 
     retrieved, messages, _ = ask_api._prepare(_payload())
 
