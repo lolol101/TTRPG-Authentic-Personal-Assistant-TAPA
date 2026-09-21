@@ -1,5 +1,6 @@
 import { SendHorizontal } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { ChatMarkdown } from '@/components/ChatMarkdown'
 import { ChatSidebar } from '@/components/ChatSidebar'
 import { ProposedChanges } from '@/components/ProposedChanges'
 import { SourcesPopover } from '@/components/SourcesPopover'
@@ -480,13 +481,11 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
                         : 'border bg-card',
                   )}
                 >
-                  {message.text && (
-                    <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                      {message.text}
-                      {message.streaming && (
-                        <span className="ml-0.5 inline-block h-4 w-[2px] animate-pulse bg-current align-text-bottom" />
-                      )}
-                    </p>
+                  {message.text && message.role === 'assistant' && (
+                    <ChatMarkdown text={message.text} streaming={message.streaming} />
+                  )}
+                  {message.text && message.role === 'user' && (
+                    <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.text}</p>
                   )}
                   {!message.text && (
                     <p className="flex items-center gap-2 text-xs text-muted-foreground">
