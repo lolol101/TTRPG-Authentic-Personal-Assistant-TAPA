@@ -14,6 +14,7 @@ from app.core.chat_store import (
     message_count,
 )
 from app.core.db import get_session
+from app.core.edit_log import mark_applied
 from app.models.character import Character
 from app.models.chat import Chat, ChatMessage
 from app.models.user import User
@@ -151,11 +152,21 @@ def update_message(
     """Records that the player accepted the proposed edits.
 
     Without it a reload would offer to apply the same damage a second time.
+    Whatever was applied is also scored, so the share of proposals a player
+    actually takes can be read later (see `core/edit_log.py`).
     """
     chat = _owned_chat(chat_id, current_user, session)
     message = session.get(ChatMessage, message_id)
     if message is None or message.chat_id != chat.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+
+    if payload.applied_paths and chat.character_id is not None:
+        mark_applied(
+            session,
+            character_id=chat.character_id,
+            message_id=message.id,
+            paths=payload.applied_paths,
+        )
 
     message.applied = payload.applied
     session.add(message)

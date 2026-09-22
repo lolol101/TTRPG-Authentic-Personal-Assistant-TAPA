@@ -48,6 +48,7 @@ def test_copies_every_table(source, target) -> None:
         "chat": 1,
         "chatmessage": 1,
         "charactersnapshot": 1,
+        "sheeteditoutcome": 0,
     }
     assert _count(target, User) == 2
     assert _count(target, Character) == 2
@@ -129,4 +130,5 @@ def test_migration_sees_every_table_the_app_owns() -> None:
         "chat",
         "chatmessage",
         "charactersnapshot",
+        "sheeteditoutcome",
     }

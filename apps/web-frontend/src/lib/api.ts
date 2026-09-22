@@ -360,9 +360,19 @@ export const api = {
   listMessages: (token: string, chatId: number) =>
     request<ChatMessage[]>(`/chats/${chatId}/messages`, token),
 
-  markApplied: (token: string, chatId: number, messageId: number) =>
+  /**
+   * Reports what the player just applied. `applied` answers "may this turn
+   * still be applied at all", `paths` answer "what was taken" — a partly
+   * applied turn is false for the first and non-empty for the second.
+   */
+  markApplied: (
+    token: string,
+    chatId: number,
+    messageId: number,
+    { applied, paths }: { applied: boolean; paths: string[] },
+  ) =>
     request<ChatMessage>(`/chats/${chatId}/messages/${messageId}`, token, {
       method: 'PATCH',
-      body: JSON.stringify({ applied: true }),
+      body: JSON.stringify({ applied, applied_paths: paths }),
     }),
 }

@@ -39,6 +39,11 @@ class ChatMessageResponse(BaseModel):
 
 
 class ChatMessageUpdate(BaseModel):
-    """Only the applied flag: a message's text is a record, not a draft."""
+    """Only what became of the proposals: the text is a record, not a draft."""
 
     applied: bool
+    #: Which paths the player just applied. Sent per section as they are
+    #: applied, while `applied` stays false until nothing is left — the flag
+    #: answers "may this turn still be applied", these answer "what was
+    #: taken", and a partly applied turn needs both.
+    applied_paths: list[str] = []
