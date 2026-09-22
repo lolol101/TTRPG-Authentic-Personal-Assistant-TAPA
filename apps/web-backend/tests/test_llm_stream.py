@@ -244,3 +244,28 @@ def test_stream_reports_an_unreachable_service_as_an_event(client, monkeypatch) 
     assert response.status_code == 200
     error = [payload for name, payload in _frames(response) if name == "error"][0]
     assert error["status"] == 502
+
+
+def test_stream_passes_the_weak_event_through_untouched(client, monkeypatch) -> None:
+    """No explicit handling needed in the relay — see _iter_sse_frames: only
+    "done" is rebuilt from named fields, everything else passes as-is."""
+    headers = _auth_headers(client)
+    _stub_stream(
+        monkeypatch,
+        [
+            "event: sources",
+            "data: []",
+            "",
+            "event: weak",
+            'data: {"weak": true}',
+            "",
+            "event: done",
+            'data: {"proposed_changes": [], "provider": "openrouter"}',
+            "",
+        ],
+    )
+
+    response = client.post("/llm/ask/stream", json={"question": "борщ"}, headers=headers)
+
+    frames = _frames(response)
+    assert ("weak", {"weak": True}) in frames

@@ -45,7 +45,7 @@ def test_both_phrasings_are_searched(monkeypatch) -> None:
     queries = _record_queries(monkeypatch)
     monkeypatch.setattr(ask_api, "search_queries_for", lambda question: ["Demoralize action"])
 
-    retrieved, _, _ = ask_api._prepare(_payload())
+    retrieved, _, _, _ = ask_api._prepare(_payload())
 
     assert queries == ["Demoralize action", "Что делает действие Устрашение?"]
     assert len(retrieved) == 2
@@ -79,7 +79,7 @@ def test_the_english_hits_come_first(monkeypatch) -> None:
     queries = _record_queries(monkeypatch)
     monkeypatch.setattr(ask_api, "search_queries_for", lambda question: ["Demoralize action"])
 
-    retrieved, _, _ = ask_api._prepare(_payload())
+    retrieved, _, _, _ = ask_api._prepare(_payload())
 
     assert retrieved[0]["metadata"]["title"] == "Demoralize action"
     assert queries[0] == "Demoralize action"
@@ -101,7 +101,7 @@ def test_the_same_page_found_by_both_phrasings_appears_once(monkeypatch) -> None
     monkeypatch.setattr(ask_api, "plan_for", lambda question: [])
     monkeypatch.setattr(ask_api, "search_queries_for", lambda question: ["Demoralize action"])
 
-    retrieved, _, _ = ask_api._prepare(_payload())
+    retrieved, _, _, _ = ask_api._prepare(_payload())
 
     assert len(retrieved) == 1
 

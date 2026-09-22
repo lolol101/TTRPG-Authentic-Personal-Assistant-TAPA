@@ -13,7 +13,7 @@ from app.core.history import FittedHistory, Turn, fit_history, retrieval_query
 from app.core.llm_provider import Completion, LLMNotConfiguredError, complete, stream
 from app.core.prompts import build_ask_messages
 from app.core.query_rewrite import search_queries_for
-from app.core.retriever import retrieve
+from app.core.retriever import is_weak, retrieve
 from app.core.sheet_plan import PlanStep, categories_for, plan_for
 from app.core.sse import event
 from app.core.tools import CLARIFY_TOOL, SHEET_CHANGE_TOOL
@@ -108,7 +108,9 @@ def _prepare_with_progress(
             history=fitted.messages,
             retry_feedback=payload.retry_feedback,
         )
-        return ([], messages, fitted)
+        # Not a search leg at all — nothing was retrieved to be weak about,
+        # and flagging it would read as a caveat on the checker's own words.
+        return ([], messages, fitted, False)
 
     # A request to change the sheet is really several requests; ask what it
     # touches and search for each part. An ordinary question plans to
@@ -159,17 +161,19 @@ def _prepare_with_progress(
             _collect(retrieved, seen, retrieve(one, payload.k, ruleset=payload.ruleset))
         _collect(retrieved, seen, retrieve(query, payload.k, ruleset=payload.ruleset))
 
+    weak = is_weak(retrieved)
     messages = build_ask_messages(
         payload.question,
         retrieved,
         payload.character_context,
         allow_sheet_edits=payload.allow_sheet_edits,
         history=fitted.messages,
+        weak=weak,
     )
-    return (retrieved, messages, fitted)
+    return (retrieved, messages, fitted, weak)
 
 
-def _prepare(payload: AskRequest) -> tuple[list[dict], list[dict], FittedHistory]:
+def _prepare(payload: AskRequest) -> tuple[list[dict], list[dict], FittedHistory, bool]:
     """The same work for the non-streaming endpoint, with nobody watching."""
     generator = _prepare_with_progress(payload)
     while True:
@@ -182,7 +186,7 @@ def _prepare(payload: AskRequest) -> tuple[list[dict], list[dict], FittedHistory
 @router.post("/ask", response_model=AskResponse)
 def ask(payload: AskRequest) -> AskResponse:
     started_at = time.monotonic()
-    retrieved, messages, fitted = _prepare(payload)
+    retrieved, messages, fitted, weak = _prepare(payload)
     tools = _tools_for(payload)
 
     try:
@@ -212,6 +216,8 @@ def ask(payload: AskRequest) -> AskResponse:
         [r["metadata"]["title"] for r in retrieved],
         elapsed_ms,
     )
+    if weak:
+        _log.info("ask: question=%r retrieval weak, nothing close enough", payload.question)
 
     return AskResponse(
         answer=completion.text,
@@ -221,6 +227,7 @@ def ask(payload: AskRequest) -> AskResponse:
         clarification=(
             Clarification(**completion.clarification) if completion.clarification else None
         ),
+        weak=weak,
     )
 
 
@@ -239,9 +246,13 @@ def ask_stream(payload: AskRequest) -> StreamingResponse:
         # Prepared inside the generator so planning and each search can be
         # announced as they happen; done before it, the reader would watch
         # a blank screen through the slowest part of the request.
-        retrieved, messages, fitted = yield from _prepare_with_progress(payload)
+        retrieved, messages, fitted, weak = yield from _prepare_with_progress(payload)
 
         yield event("sources", [source.model_dump() for source in _sources_of(retrieved)])
+        # Its own event rather than folded into "sources": web-backend's
+        # relay whitelists what it forwards from "done" but passes every
+        # other event through untouched, and this is known this early.
+        yield event("weak", {"weak": weak})
         yield event("stage", {"stage": "generating"})
 
         completion: Completion | None = None
@@ -274,6 +285,10 @@ def ask_stream(payload: AskRequest) -> StreamingResponse:
             [r["metadata"]["title"] for r in retrieved],
             elapsed_ms,
         )
+        if weak:
+            _log.info(
+                "ask/stream: question=%r retrieval weak, nothing close enough", payload.question
+            )
 
         yield event(
             "done",

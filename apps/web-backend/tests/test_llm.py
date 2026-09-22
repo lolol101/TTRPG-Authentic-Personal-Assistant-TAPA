@@ -451,3 +451,25 @@ def test_a_broken_retry_leaves_the_first_answer_standing(client, monkeypatch) ->
 
     assert len(calls) == 2
     assert [change["path"] for change in body["proposed_changes"]] == ["hp_current"]
+
+
+def test_ask_passes_weak_through_from_llm_service(client, monkeypatch) -> None:
+    headers = _auth_headers(client)
+
+    def _fake_post(url, json, timeout):
+        return _FakeAskResponse(200, {"answer": "", "sources": [], "weak": True})
+
+    monkeypatch.setattr(llm.httpx, "post", _fake_post)
+
+    response = client.post("/llm/ask", json={"question": "борщ"}, headers=headers)
+
+    assert response.json()["weak"] is True
+
+
+def test_ask_defaults_weak_to_false_when_llm_service_omits_it(client, monkeypatch) -> None:
+    headers = _auth_headers(client)
+    _stub_ask(monkeypatch)
+
+    response = client.post("/llm/ask", json={"question": "Что делает Удар?"}, headers=headers)
+
+    assert response.json()["weak"] is False

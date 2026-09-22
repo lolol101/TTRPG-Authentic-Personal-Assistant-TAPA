@@ -39,6 +39,40 @@ def test_build_ask_prompt_handles_no_context() -> None:
     assert "Вопрос без ответа" in prompt
 
 
+def test_weak_retrieval_adds_a_notice_before_the_context() -> None:
+    """A second, code-checked reason to admit the gap — see retriever.is_weak."""
+    retrieved = [
+        {
+            "id": "a",
+            "text": "текст A",
+            "metadata": {"title": "A", "source_book": "Книга"},
+            "distance": 1.1,
+        }
+    ]
+
+    prompt = _question(build_ask_messages("вопрос", retrieved, weak=True))
+
+    assert "не подгоняй" in prompt.lower()
+    assert "текст A" in prompt
+
+
+def test_a_confident_retrieval_carries_no_weak_notice() -> None:
+    retrieved = [{"id": "a", "text": "текст A", "metadata": {"title": "A"}, "distance": 0.1}]
+
+    prompt = _question(build_ask_messages("вопрос", retrieved, weak=False))
+
+    assert "не подгоняй" not in prompt.lower()
+
+
+def test_weak_is_not_said_about_an_already_empty_context() -> None:
+    """Empty context already reads as "контекст не найден" — a second,
+    differently worded caveat on top of it would say the same thing twice."""
+    prompt = _question(build_ask_messages("вопрос", [], weak=True))
+
+    assert "не подгоняй" not in prompt.lower()
+    assert "контекст не найден" in prompt.lower()
+
+
 def test_build_ask_prompt_numbers_multiple_sources() -> None:
     retrieved = [
         {"id": "a", "text": "текст A", "metadata": {"title": "A", "source_book": "Книга"}},

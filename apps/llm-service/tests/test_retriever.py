@@ -148,3 +148,37 @@ def test_an_unfiltered_search_never_asks_for_categories(monkeypatch) -> None:
     retriever.retrieve("Что делает Grapple?", 5)
 
     assert calls == [{}]
+
+
+def _hit(distance: float, title: str = "T") -> dict:
+    return {"id": title, "text": "t", "metadata": {"title": title}, "distance": distance}
+
+
+def test_is_weak_on_empty_retrieval() -> None:
+    """No chunks came back at all — the strongest case there is."""
+    assert retriever.is_weak([]) is True
+
+
+def test_is_weak_when_the_closest_hit_is_still_far(monkeypatch) -> None:
+    monkeypatch.setattr(retriever.settings, "retrieval_weak_distance", 0.85)
+
+    assert retriever.is_weak([_hit(0.9), _hit(1.1)]) is True
+
+
+def test_not_weak_when_the_closest_hit_clears_the_threshold(monkeypatch) -> None:
+    monkeypatch.setattr(retriever.settings, "retrieval_weak_distance", 0.85)
+
+    assert retriever.is_weak([_hit(0.7), _hit(1.2)]) is False
+
+
+def test_is_weak_looks_at_the_closest_hit_not_the_average(monkeypatch) -> None:
+    """One confident match should not be drowned out by four weak ones."""
+    monkeypatch.setattr(retriever.settings, "retrieval_weak_distance", 0.85)
+
+    assert retriever.is_weak([_hit(0.6), _hit(1.0), _hit(1.1), _hit(1.2), _hit(1.3)]) is False
+
+
+def test_is_weak_right_at_the_threshold_is_not_weak(monkeypatch) -> None:
+    monkeypatch.setattr(retriever.settings, "retrieval_weak_distance", 0.85)
+
+    assert retriever.is_weak([_hit(0.85)]) is False

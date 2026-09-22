@@ -68,3 +68,5 @@ class AskResponse(BaseModel):
     proposed_changes: list[ProposedChange] = []
     memory: Memory = Memory()
     clarification: Clarification | None = None
+    """Nothing retrieved was a confident match — see retriever.is_weak."""
+    weak: bool = False
