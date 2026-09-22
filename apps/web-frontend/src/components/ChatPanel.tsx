@@ -21,6 +21,21 @@ import {
 import { cn } from '@/lib/utils'
 import { DEFAULT_RULESET, QUESTION_RULESETS, rulesetLabel } from '@/rulesets/registry'
 
+/**
+ * Whether the "Отклонено проверкой" list should start collapsed.
+ *
+ * An unresolved rejection needs the player's eye — it stays open. One the
+ * player has already acted on (applied the whole turn, or even one of its
+ * sections) does not need to keep reading as an open conflict, so it folds
+ * away; the record itself is never dropped.
+ */
+export function rejectedStartsCollapsed(
+  applied: boolean | undefined,
+  appliedSections: string[] | undefined,
+): boolean {
+  return Boolean(applied) || (appliedSections?.length ?? 0) > 0
+}
+
 interface Message {
   id: string
   /** Set once the turn is stored; absent while it is still being streamed. */
@@ -547,16 +562,24 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
               )}
 
               {message.rejected && message.rejected.length > 0 && (
-                    <div className="space-y-1 border-t pt-2">
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                        Отклонено проверкой
-                      </p>
-                      <ul className="space-y-0.5 text-xs text-muted-foreground">
+                    // Rejected reasons stay in the record — dropping them
+                    // once something is applied would hide that the check
+                    // ever disagreed. Collapsed instead: an unresolved
+                    // rejection needs the player's eye, one already acted on
+                    // does not need to keep reading as an open conflict.
+                    <details
+                      className="space-y-1 border-t pt-2"
+                      open={!rejectedStartsCollapsed(message.applied, message.appliedSections)}
+                    >
+                      <summary className="cursor-pointer text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Отклонено проверкой ({message.rejected.length})
+                      </summary>
+                      <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
                         {message.rejected.map((reason) => (
                           <li key={reason}>{reason}</li>
                         ))}
                       </ul>
-                    </div>
+                    </details>
                   )}
 
                   {message.sources && message.sources.length > 0 && (
