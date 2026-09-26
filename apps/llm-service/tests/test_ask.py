@@ -246,3 +246,47 @@ def test_turns_that_do_not_fit_the_budget_are_reported_as_dropped(monkeypatch) -
     memory = response.json()["memory"]
     assert memory["used"] == 1
     assert memory["dropped"] == 2
+
+
+def test_ask_reports_weak_when_nothing_retrieved_is_close(monkeypatch) -> None:
+    monkeypatch.setattr(ask.settings, "retrieval_weak_distance", 0.85)
+    far = [{**_FAKE_RETRIEVED[0], "distance": 1.1}]
+    monkeypatch.setattr(ask, "retrieve", lambda question, k, ruleset=None: far)
+    monkeypatch.setattr(ask, "complete", lambda messages, tools=None: Completion("ok"))
+
+    response = client.post("/ask", json={"question": "вопрос"})
+
+    assert response.json()["weak"] is True
+
+
+def test_ask_does_not_report_weak_for_a_confident_match(monkeypatch) -> None:
+    monkeypatch.setattr(ask.settings, "retrieval_weak_distance", 0.85)
+    monkeypatch.setattr(ask, "retrieve", lambda question, k, ruleset=None: _FAKE_RETRIEVED)
+    monkeypatch.setattr(ask, "complete", lambda messages, tools=None: Completion("ok"))
+
+    response = client.post("/ask", json={"question": "Что делает Удар?"})
+
+    assert response.json()["weak"] is False
+
+
+def test_retry_feedback_is_never_reported_as_weak(monkeypatch) -> None:
+    """No search ran on this leg — flagging it would caveat the checker's
+    own words, not a retrieval that came back empty-handed."""
+
+    def _must_not_run(question, k, ruleset=None):
+        raise AssertionError("a retry leg must not search the rulebooks")
+
+    monkeypatch.setattr(ask, "retrieve", _must_not_run)
+    monkeypatch.setattr(ask, "complete", lambda messages, tools=None: Completion("исправлено"))
+
+    response = client.post(
+        "/ask",
+        json={
+            "question": "Собери персонажа",
+            "allow_sheet_edits": True,
+            "character_context": "Лист: пустой",
+            "retry_feedback": "Отклонено: sheet_data.ancestry",
+        },
+    )
+
+    assert response.json()["weak"] is False

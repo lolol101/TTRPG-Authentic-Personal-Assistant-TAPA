@@ -63,3 +63,5 @@ class AskResponse(BaseModel):
     """Id of the saved answer, when the question belonged to a chat."""
     message_id: int | None = None
     clarification: Clarification | None = None
+    """Nothing llm-service retrieved was a confident match for the question."""
+    weak: bool = False

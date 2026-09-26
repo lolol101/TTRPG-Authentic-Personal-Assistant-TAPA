@@ -3,10 +3,11 @@ from typing import Any
 from app.core.history import Turn
 
 ASK_SYSTEM_INSTRUCTIONS = (
-    "Ты — помощник по правилам Pathfinder 2e (только открытый ORC-контент, "
-    "переводы pf2.ru). Отвечай ТОЛЬКО на основе приведённого ниже контекста. "
-    "Если в контексте нет ответа на вопрос — прямо скажи об этом, не выдумывай "
-    "правила. Отвечай на русском, кратко и по делу."
+    "Ты — помощник по правилам Pathfinder 2e (только открытый ORC-контент из "
+    "официальных паков foundryvtt/pf2e, на английском). Отвечай ТОЛЬКО на "
+    "основе приведённого ниже контекста. Если в контексте нет ответа на "
+    "вопрос — прямо скажи об этом, не выдумывай правила. Отвечай на русском, "
+    "кратко и по делу."
 )
 
 CHARACTER_INSTRUCTIONS = (
@@ -67,10 +68,23 @@ EDIT_INSTRUCTIONS = (
 )
 
 
-def _context_block(retrieved: list[dict[str, Any]]) -> str:
+#: Told to the model when retriever.is_weak found nothing close to the
+#: question — a second, code-checked reason to admit the gap, independent of
+#: the model noticing on its own. See settings.retrieval_weak_distance.
+WEAK_RETRIEVAL_NOTICE = (
+    "(Поиск не нашёл ничего похожего на точное совпадение — расстояние до "
+    "ближайшего фрагмента выше порога уверенного попадания. Если ни один из "
+    "них не отвечает на вопрос по существу, а не по касательной, так и "
+    "скажи: ответа в правилах не нашлось. Не подгоняй смысл под то, что "
+    "нашлось.)\n\n"
+)
+
+
+def _context_block(retrieved: list[dict[str, Any]], weak: bool = False) -> str:
     if not retrieved:
         return "(контекст не найден)"
-    return "\n\n".join(
+    notice = WEAK_RETRIEVAL_NOTICE if weak else ""
+    return notice + "\n\n".join(
         f"[{i + 1}] {r['metadata']['title']} "
         f"(источник: {r['metadata'].get('source_book') or 'неизвестен'}):\n{r['text']}"
         for i, r in enumerate(retrieved)
@@ -99,6 +113,7 @@ def build_ask_messages(
     allow_sheet_edits: bool = False,
     history: list[Turn] | None = None,
     retry_feedback: str | None = None,
+    weak: bool = False,
 ) -> list[dict[str, Any]]:
     """Instructions, then the remembered turns, then this question.
 
@@ -129,7 +144,7 @@ def build_ask_messages(
     messages.append(
         {
             "role": "user",
-            "content": f"Контекст:\n{_context_block(retrieved)}\n\nВопрос: {question}",
+            "content": f"Контекст:\n{_context_block(retrieved, weak)}\n\nВопрос: {question}",
         }
     )
     return messages

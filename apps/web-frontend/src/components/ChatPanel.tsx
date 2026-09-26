@@ -50,6 +50,9 @@ interface Message {
   appliedSections?: string[]
   /** Asked instead of proposing an edit; answering it continues the turn. */
   clarification?: Clarification
+  /** Nothing retrieved for this turn was a confident match — the answer may
+   * be reaching past what the found rules actually say. */
+  weak?: boolean
   failed?: boolean
   /** Still arriving — drives the caret and keeps the input disabled. */
   streaming?: boolean
@@ -283,6 +286,7 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
         {
           onStage: (stage) => patchReply({ stage }),
           onSources: (sources) => patchReply({ sources }),
+          onWeak: (weak) => patchReply({ weak }),
           onDelta: (piece) => {
             streamed += piece
             patchReply({ text: streamed })
@@ -519,6 +523,18 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
                           message.changes?.length
                           ? 'Предлагаю изменить лист:'
                           : 'Ответ пустой.'}
+                    </p>
+                  )}
+
+                  {message.weak && (
+                    <p
+                      className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-500"
+                      title="Ближайшее найденное правило не похоже на точное совпадение — проверь ответ по источникам"
+                    >
+                      <span aria-hidden className="shrink-0">
+                        ⚠
+                      </span>
+                      Поиск не нашёл уверенного совпадения в правилах
                     </p>
                   )}
 

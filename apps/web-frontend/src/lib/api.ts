@@ -42,6 +42,9 @@ export interface AskResponse {
   rejected_changes: string[]
   memory?: AskMemory
   message_id?: number | null
+  /** Nothing found was a confident match for the question — see the
+   * llm-service side, retriever.is_weak. */
+  weak?: boolean
 }
 
 export interface Chat {
@@ -199,6 +202,9 @@ export interface AskStage {
 export interface AskStreamHandlers {
   onStage?: (stage: AskStage) => void
   onSources?: (sources: AskSource[]) => void
+  /** Known as soon as sources are, same moment — not worth waiting for
+   * "done" to report. */
+  onWeak?: (weak: boolean) => void
   onDelta?: (text: string) => void
   onDone?: (result: AskDone) => void
 }
@@ -279,6 +285,7 @@ function handleFrame(frame: string, handlers: AskStreamHandlers): void {
 
   if (name === 'stage') handlers.onStage?.(data as AskStage)
   else if (name === 'sources') handlers.onSources?.(data as AskSource[])
+  else if (name === 'weak') handlers.onWeak?.((data as { weak: boolean }).weak)
   else if (name === 'delta') handlers.onDelta?.((data as { text: string }).text)
   else if (name === 'done') handlers.onDone?.(data as AskDone)
   else if (name === 'error') throw new ApiError((data as { detail: string }).detail)

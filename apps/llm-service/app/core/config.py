@@ -130,6 +130,19 @@ class Settings(BaseSettings):
     # filter. Turn this off to search the whole index for every area.
     retrieval_filter_by_section: bool = True
 
+    # Chroma's l2 distance of the closest hit to the query embedding.
+    # bge-m3, this index, 2026-09-22: an English-rewritten question whose
+    # answer is actually indexed ("Grapple action", "Demoralize action",
+    # "Frightened condition") landed its nearest hit between 0.62 and 0.69;
+    # a question with no business in a PF2e corpus ("capital of France",
+    # "17 times 34") never landed closer than 0.90. 0.85 sits in the gap
+    # with margin on both sides. Retrieval is never cut on this — see
+    # retriever.is_weak — only flagged, because four questions on each side
+    # is a spot check, not a calibration, and a hard cut risks losing a
+    # genuine answer to a threshold set from too little data. Revisit once
+    # the golden set is broad enough to measure the trade-off properly.
+    retrieval_weak_distance: float = 0.85
+
     # What the dialogue may take of the model's window. The rules context is
     # retrieved fresh every turn and is the point of the app, so it is served
     # first; this is the leftover the chat history slides through.

@@ -42,7 +42,7 @@ def test_a_plain_question_makes_exactly_one_retrieval(monkeypatch) -> None:
     monkeypatch.setattr(ask_api, "plan_for", lambda question: [])
     monkeypatch.setattr(ask_api, "search_queries_for", lambda question: [])
 
-    retrieved, _, _ = ask_api._prepare(
+    retrieved, _, _, _ = ask_api._prepare(
         _payload(question="Что делает Grapple?", allow_sheet_edits=False, character_context=None)
     )
 
@@ -68,7 +68,7 @@ def test_a_sheet_request_searches_once_per_area(monkeypatch) -> None:
         ],
     )
 
-    retrieved, _, _ = ask_api._prepare(_payload())
+    retrieved, _, _, _ = ask_api._prepare(_payload())
 
     assert queries == ["elf heritage", "rogue features", "starting gear"]
     assert len(retrieved) == 3
@@ -89,7 +89,7 @@ def test_the_same_rule_found_twice_appears_once(monkeypatch) -> None:
         ],
     )
 
-    retrieved, _, _ = ask_api._prepare(_payload())
+    retrieved, _, _, _ = ask_api._prepare(_payload())
 
     assert len(retrieved) == 1
 
@@ -103,7 +103,7 @@ def test_planning_never_blocks_the_answer(monkeypatch) -> None:
     monkeypatch.setattr(ask_api, "plan_for", lambda question: [])
     monkeypatch.setattr(ask_api, "search_queries_for", lambda question: [])
 
-    retrieved, messages, _ = ask_api._prepare(_payload())
+    retrieved, messages, _, _ = ask_api._prepare(_payload())
 
     assert len(retrieved) == 1
     assert messages

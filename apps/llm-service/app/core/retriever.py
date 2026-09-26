@@ -54,3 +54,18 @@ def retrieve(
         if len(hits) == wanted:
             break
     return hits
+
+
+def is_weak(retrieved: list[dict[str, Any]]) -> bool:
+    """Whether nothing retrieved is a confident match for the question.
+
+    Empty context already reads as "(контекст не найден)" in the prompt —
+    this catches the quieter failure: *k* chunks came back, because Chroma
+    always returns its *k* nearest regardless of how far they are, and nudged
+    into a plausible-sounding answer whose citation does not actually say it.
+    The closest hit's distance is what tells the two apart; see
+    settings.retrieval_weak_distance for how that number was measured.
+    """
+    if not retrieved:
+        return True
+    return min(hit["distance"] for hit in retrieved) > settings.retrieval_weak_distance

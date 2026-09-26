@@ -116,3 +116,37 @@ def test_the_answer_still_arrives_unchanged(monkeypatch) -> None:
     assert [data["text"] for name, data in events if name == "delta"] == ["ответ"]
     assert any(name == "done" for name, _ in events)
     assert any(name == "sources" for name, _ in events)
+
+
+def test_weak_event_arrives_before_generating(monkeypatch) -> None:
+    """Known at retrieval time, same as sources — reported before the model
+    even starts, not tucked away in "done" once the answer is finished."""
+    monkeypatch.setattr(ask_api, "retrieve", lambda *a, **k: [_hit("Grapple")])
+    monkeypatch.setattr(ask_api, "plan_for", lambda question: [])
+    monkeypatch.setattr(ask_api, "search_queries_for", lambda question: [])
+    monkeypatch.setattr(ask_api.settings, "retrieval_weak_distance", 0.85)
+    _stub_stream(monkeypatch)
+
+    events = _events({"question": "Что такое Grapple?"})
+    names = [name for name, _ in events]
+    generating = next(
+        i
+        for i, (name, data) in enumerate(events)
+        if name == "stage" and data["stage"] == "generating"
+    )
+
+    assert "weak" in names
+    assert names.index("sources") < names.index("weak") < generating
+
+
+def test_weak_event_is_true_when_nothing_close_was_found(monkeypatch) -> None:
+    far_hit = {**_hit("X"), "distance": 1.2}
+    monkeypatch.setattr(ask_api, "retrieve", lambda *a, **k: [far_hit])
+    monkeypatch.setattr(ask_api, "plan_for", lambda question: [])
+    monkeypatch.setattr(ask_api, "search_queries_for", lambda question: [])
+    monkeypatch.setattr(ask_api.settings, "retrieval_weak_distance", 0.85)
+    _stub_stream(monkeypatch)
+
+    events = _events({"question": "борщ"})
+
+    assert dict(events)["weak"] == {"weak": True}
