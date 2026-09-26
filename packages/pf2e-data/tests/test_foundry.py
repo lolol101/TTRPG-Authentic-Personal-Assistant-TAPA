@@ -15,6 +15,7 @@ from app.foundry import (
     LICENSED,
     convert_tree,
     entry_to_page,
+    journal_to_pages,
     to_text,
 )
 
@@ -317,9 +318,7 @@ def test_the_url_is_pinned_to_the_ref_the_data_came_from() -> None:
     "master", where these paths do not exist — every one of 13494 links
     answered 404. A commit is better than a branch: a branch moves on.
     """
-    page = entry_to_page(
-        _entry(), pack="spells", relative_path="spells/x.json", ref="abc1234"
-    )
+    page = entry_to_page(_entry(), pack="spells", relative_path="spells/x.json", ref="abc1234")
 
     assert page is not None
     assert "/blob/abc1234/" in page.url
@@ -688,3 +687,135 @@ def test_an_entry_with_none_of_these_fields_is_unchanged() -> None:
     page = entry_to_page(_entry(), pack="spells", relative_path="spells/x.json")
 
     assert page.body.startswith("Test Entry\n\nSpell 3 · Traits: fire, concentrate")
+
+
+# --- journals: the rules text, not the statblocks ------------------------
+
+
+_PROSE = "<p>A chapter of prose long enough to survive the minimum length check.</p>"
+
+
+def _journal(pages=None, **overrides):
+    """A JournalEntry: no system of its own, licensed pages carrying HTML."""
+    entry = {
+        "_id": "jrn1",
+        "name": "Running the Game",
+        "pages": pages
+        if pages is not None
+        else [
+            {
+                "name": "Difficulty Classes",
+                "text": {"content": _PROSE},
+                "system": {
+                    "publication": {
+                        "license": "ORC",
+                        "remaster": True,
+                        "title": "Pathfinder GM Core",
+                    }
+                },
+            }
+        ],
+    }
+    entry.update(overrides)
+    return entry
+
+
+def _pages_of(entry):
+    return journal_to_pages(entry, pack="journals", relative_path="journals/one.json")
+
+
+def test_a_licensed_journal_page_becomes_a_page() -> None:
+    """The whole point: rules prose reaches the corpus at all."""
+    page = _pages_of(_journal())[0]
+
+    assert "chapter of prose" in page.body
+    assert page.category == "journals"
+    assert page.source_book == "Pathfinder GM Core"
+
+
+def test_a_journal_page_is_titled_by_entry_and_page() -> None:
+    assert _pages_of(_journal())[0].title == "Running the Game — Difficulty Classes"
+
+
+def test_a_page_repeating_the_entry_name_is_not_titled_twice() -> None:
+    entry = _journal(
+        pages=[
+            {
+                "name": "Running the Game",
+                "text": {"content": _PROSE},
+                "system": {"publication": {"license": "ORC", "remaster": True}},
+            }
+        ]
+    )
+
+    assert _pages_of(entry)[0].title == "Running the Game"
+
+
+def test_an_unstamped_page_stays_out() -> None:
+    """Silence is not a licence: unstamped prose must not reach the index."""
+    entry = _journal(pages=[{"name": "Somewhere", "text": {"content": _PROSE}}])
+
+    assert _pages_of(entry) == []
+
+
+def test_a_page_inherits_the_licence_of_its_entry() -> None:
+    entry = _journal(
+        pages=[{"name": "Somewhere", "text": {"content": _PROSE}}],
+        system={"publication": {"license": "ORC", "remaster": True, "title": "GM Core"}},
+    )
+
+    assert [page.title for page in _pages_of(entry)] == ["Running the Game — Somewhere"]
+
+
+@pytest.mark.parametrize(
+    "publication",
+    [
+        {"license": "Paizo", "remaster": True},
+        {"license": "ORC", "remaster": False},
+        {"license": "ORC"},
+    ],
+)
+def test_pages_that_are_closed_or_pre_remaster_stay_out(publication) -> None:
+    entry = _journal(
+        pages=[{"name": "X", "text": {"content": _PROSE}, "system": {"publication": publication}}]
+    )
+
+    assert _pages_of(entry) == []
+
+
+def test_a_page_too_short_to_be_a_rule_stays_out() -> None:
+    entry = _journal(
+        pages=[
+            {
+                "name": "Stub",
+                "text": {"content": "<p>See below.</p>"},
+                "system": {"publication": {"license": "ORC", "remaster": True}},
+            }
+        ]
+    )
+
+    assert _pages_of(entry) == []
+
+
+def test_every_licensed_page_of_one_journal_is_kept() -> None:
+    stamp = {"publication": {"license": "ORC", "remaster": True}}
+    entry = _journal(
+        pages=[
+            {"name": "First", "text": {"content": _PROSE}, "system": stamp},
+            {"name": "Second", "text": {"content": _PROSE}, "system": stamp},
+        ]
+    )
+
+    assert len(_pages_of(entry)) == 2
+
+
+def test_convert_tree_reads_journals_alongside_items(tmp_path) -> None:
+    packs = tmp_path / "packs"
+    _write(packs, "spells/one.json", _entry(name="Spell One"))
+    _write(packs, "journals/one.json", _journal())
+    out = tmp_path / "chunks"
+
+    counts = convert_tree(packs, out)
+
+    assert counts == {"spells": 1, "journals": 1}
+    assert (out / "journals.jsonl").is_file()

@@ -233,7 +233,7 @@ def to_text(html: str) -> str:
 
 
 def _spell_out_actions(value: str) -> str:
-    """"2" is an action cost, not a duration: 860 spells store it that way.
+    """ "2" is an action cost, not a duration: 860 spells store it that way.
 
     Printed raw it becomes "Cast 2", which says nothing to a player asking
     what an action costs. Worded values ("10 minutes", "reaction") already
@@ -270,7 +270,7 @@ _BULK_WORDS = {0.1: "L", 0: "—"}
 
 
 def _action_cost(system: dict) -> str:
-    """"Actions 2", "Reaction", or nothing at all for a passive ability."""
+    """ "Actions 2", "Reaction", or nothing at all for a passive ability."""
     kind = str(_value_of(system, "actionType") or "")
     if kind in _ACTION_WORDS:
         return _ACTION_WORDS[kind]
@@ -456,6 +456,86 @@ def _header(entry: dict, text_parts: list[str]) -> None:
         text_parts.append(f"Requirements {requirements}")
 
 
+def _publication_of(holder: object) -> dict:
+    """The publication block of an entry or of a journal page, if it has one."""
+    if not isinstance(holder, dict):
+        return {}
+    system = holder.get("system")
+    if not isinstance(system, dict):
+        return {}
+    publication = system.get("publication") or system.get("source") or {}
+    return publication if isinstance(publication, dict) else {}
+
+
+def _is_indexable(publication: dict) -> bool:
+    """Open and remastered — the two things the corpus promises about itself.
+
+    Kept as one named check because journal pages are stamped in the same
+    place items are, and the promise must not quietly differ between them.
+    """
+    return publication.get("license") in LICENSED and publication.get("remaster") is True
+
+
+def journal_to_pages(
+    entry: dict, *, pack: str, relative_path: str, ref: str = DEFAULT_REF
+) -> list[ParsedPage]:
+    """A JournalEntry's text pages, one ParsedPage each.
+
+    Foundry keeps rules chapters, setting and GM guidance as journals rather
+    than items: no `system` of their own, a list of `pages`, each holding its
+    HTML in `text.content`. `entry_to_page` reads none of that and returns
+    None on the first check, which is why the corpus has held statblocks and
+    nothing that reads like a book.
+
+    Licence and remaster are taken from the page, falling back to the entry.
+    A page stamped with neither stays out: an unstamped page is not evidence
+    that the text is open, and this corpus is worth exactly what that
+    guarantee is worth.
+    """
+    if not isinstance(entry, dict):
+        return []
+    pages = entry.get("pages")
+    if not isinstance(pages, list):
+        return []
+
+    entry_publication = _publication_of(entry)
+    entry_name = str(entry.get("name") or "").strip()
+
+    parsed: list[ParsedPage] = []
+    for page in pages:
+        if not isinstance(page, dict):
+            continue
+
+        publication = _publication_of(page) or entry_publication
+        if not _is_indexable(publication):
+            continue
+
+        text = page.get("text")
+        content = text.get("content") if isinstance(text, dict) else None
+        body = to_text(str(content or ""))
+        if len(body) < MIN_TEXT_CHARS:
+            continue
+
+        page_name = str(page.get("name") or "").strip()
+        # A one-page journal usually repeats its own name; two identical
+        # halves in a title only cost the embedding room to say less.
+        names = [name for name in (entry_name, page_name) if name]
+        title = " — ".join(dict.fromkeys(names))
+
+        parsed.append(
+            ParsedPage(
+                url=f"{_SOURCE_REPO}/blob/{ref}/packs/pf2e/{relative_path}",
+                category=pack,
+                title=title,
+                source_book=publication.get("title") or None,
+                traits=[],
+                body=body,
+                fetched_at="",
+            )
+        )
+    return parsed
+
+
 def entry_to_page(
     entry: dict, *, pack: str, relative_path: str, ref: str = DEFAULT_REF
 ) -> ParsedPage | None:
@@ -467,13 +547,8 @@ def entry_to_page(
     if not isinstance(system, dict):
         return None
 
-    publication = system.get("publication") or system.get("source") or {}
-    if not isinstance(publication, dict):
-        return None
-
-    if publication.get("license") not in LICENSED:
-        return None
-    if publication.get("remaster") is not True:
+    publication = _publication_of(entry)
+    if not _is_indexable(publication):
         return None
 
     body = to_text(str(_value_of(system, "description") or ""))
@@ -519,15 +594,17 @@ def convert_tree(packs_root: Path, output_dir: Path, ref: str = DEFAULT_REF) -> 
                 _log.warning("Skipping %s: %s", path, exc)
                 continue
 
-            page = entry_to_page(
-                entry,
-                pack=pack,
-                relative_path=path.relative_to(packs_root).as_posix(),
-                ref=ref,
-            )
-            if page is None:
-                continue
-            records.extend(asdict(chunk) for chunk in chunk_page(page, language="en"))
+            relative_path = path.relative_to(packs_root).as_posix()
+            # A journal carries several pages of prose; an item carries one
+            # description. Which of the two this is decides how it is read.
+            if isinstance(entry, dict) and isinstance(entry.get("pages"), list):
+                pages = journal_to_pages(entry, pack=pack, relative_path=relative_path, ref=ref)
+            else:
+                page = entry_to_page(entry, pack=pack, relative_path=relative_path, ref=ref)
+                pages = [page] if page is not None else []
+
+            for page in pages:
+                records.extend(asdict(chunk) for chunk in chunk_page(page, language="en"))
 
         if not records:
             continue
