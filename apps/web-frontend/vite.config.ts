@@ -30,6 +30,12 @@ export default defineConfig({
     // 127.0.0.1, not localhost: Node 17+ resolves localhost to ::1 first,
     // while uvicorn binds IPv4 only by default — the proxy would then fail
     // with ECONNREFUSED against a backend that is demonstrably up.
+    //
+    // Vite refuses any Host header it doesn't recognise (DNS-rebinding
+    // protection), which is exactly what a tunnel's random subdomain looks
+    // like — a `cloudflared tunnel --url` demo is unreachable without this.
+    // Scoped to that one provider rather than opened to any host.
+    allowedHosts: ['.trycloudflare.com'],
     proxy: {
       '/auth': 'http://127.0.0.1:8000',
       '/llm': 'http://127.0.0.1:8000',
