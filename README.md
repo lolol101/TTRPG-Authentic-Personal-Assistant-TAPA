@@ -5,9 +5,16 @@ ORC/SRD-контент): советчик по правилам через RAG, 
 фундамент для ГМ-планирования партий.
 
 Проект переходит от прежнего Telegram-бота к веб-приложению (backend + frontend)
-с отдельным LLM/RAG-сервисом. Актуальный план и статус задач — в
-[`docs/BACKLOG.md`](docs/BACKLOG.md), правила разработки — в
-[`CLAUDE.md`](CLAUDE.md).
+с отдельным LLM/RAG-сервисом. Правила разработки — в [`CLAUDE.md`](CLAUDE.md),
+документы — в [`docs/`](docs/):
+
+| Файл | О чём |
+|---|---|
+| [`docs/BACKLOG.md`](docs/BACKLOG.md) | что делать дальше |
+| [`docs/PROGRESS.md`](docs/PROGRESS.md) | что уже сделано и когда |
+| [`docs/DECISIONS.md`](docs/DECISIONS.md) | почему сделано именно так |
+| [`docs/DATA.md`](docs/DATA.md) | где лежат данные и как перенести |
+| [`docs/rfc/`](docs/rfc/README.md) | разбор крупных развилок до кода |
 
 Прежняя черновая реализация (aiogram-бот, LangGraph-роутинг, Chroma) сохранена
 в [`legacy/`](legacy/README.md) как референс при переносе логики в новую структуру.
