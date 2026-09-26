@@ -20,6 +20,7 @@ from app.core.chat_store import (
 )
 from app.core.config import settings
 from app.core.db import get_session
+from app.core.edit_log import record_proposals
 from app.models.character import Character
 from app.models.chat import Chat
 from app.models.user import User
@@ -251,21 +252,32 @@ def _save_turn(
 
     Saving the question up front would strand it in the history whenever the
     provider fails, and the retry would then ask it a second time.
-    """
-    if conversation.chat is None:
-        return None
 
-    add_message(conversation.chat, session, role="user", text=question)
-    saved = add_message(
-        conversation.chat,
+    The proposals are counted here too, including for a question asked
+    outside a chat: there is no message to hang them on, but the offer was
+    still made and belongs in the denominator.
+    """
+    message_id: int | None = None
+    if conversation.chat is not None:
+        add_message(conversation.chat, session, role="user", text=question)
+        saved = add_message(
+            conversation.chat,
+            session,
+            role="assistant",
+            text=answer,
+            sources=sources,
+            proposed_changes=proposed,
+            rejected_changes=rejected,
+        )
+        message_id = saved.id
+
+    record_proposals(
         session,
-        role="assistant",
-        text=answer,
-        sources=sources,
-        proposed_changes=proposed,
-        rejected_changes=rejected,
+        character=conversation.character,
+        changes=proposed,
+        message_id=message_id,
     )
-    return saved.id
+    return message_id
 
 
 @router.post("/ask", response_model=AskResponse)

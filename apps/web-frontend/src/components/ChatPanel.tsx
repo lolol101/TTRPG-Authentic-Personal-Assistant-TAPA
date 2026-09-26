@@ -323,13 +323,17 @@ export function ChatPanel({ token, characters, onApplyChanges }: Props) {
         (message.changes ?? []).forEach((c) => sections.add(c.section ?? 'Основное'))
       else sections.add(section)
 
-      // The server records only "this turn was applied", so it is marked once
-      // nothing is left to apply — partial progress lives in the page.
+      // The turn is marked applied once nothing is left — but every section
+      // reports its paths as it goes, so a player who takes half the advice
+      // is counted as having taken half, not as having refused it all.
       const remaining = (message.changes ?? []).some(
         (change) => !sections.has(change.section ?? 'Основное'),
       )
-      if (!remaining && activeChat && message.serverId) {
-        await api.markApplied(token, activeChat.id, message.serverId)
+      if (activeChat && message.serverId) {
+        await api.markApplied(token, activeChat.id, message.serverId, {
+          applied: !remaining,
+          paths: entries.map((entry) => entry.path),
+        })
       }
 
       setMessages((current) =>

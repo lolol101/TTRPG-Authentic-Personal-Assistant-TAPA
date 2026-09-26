@@ -1,6 +1,8 @@
 from sqlmodel import select
 
 from app.core import chat_store
+from app.core.edit_log import outcome_counts, record_proposals
+from app.models.character import Character
 from app.models.chat import Chat
 from app.models.user import User
 
@@ -214,3 +216,55 @@ def test_history_carries_the_text_but_not_the_sources(client, session_factory) -
         history = chat_store.history_for(chat["id"], session)
 
     assert history == [{"role": "assistant", "text": "Захват обездвиживает цель."}]
+
+
+def test_applying_a_section_scores_only_the_paths_it_names(client, session_factory) -> None:
+    """A half-applied turn is half taken, not refused — see core/edit_log.py."""
+    headers = _auth_headers(client)
+    character = _create_character(client, headers)
+    chat = client.post("/chats", json={"character_id": character["id"]}, headers=headers).json()
+
+    with session_factory() as session:
+        message_id = chat_store.add_message(
+            _stored_chat(session, chat["id"]), session, role="assistant", text="ответ"
+        ).id
+        record_proposals(
+            session,
+            character=session.get(Character, character["id"]),
+            changes=[
+                {"path": "hp_current", "section": "Основное", "verified": True},
+                {"path": "sheet_data.hero_points", "section": "Основное", "verified": True},
+            ],
+            message_id=message_id,
+        )
+
+    response = client.patch(
+        f"/chats/{chat['id']}/messages/{message_id}",
+        json={"applied": False, "applied_paths": ["hp_current"]},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    # The turn may still be applied, but one of its two changes is taken.
+    assert response.json()["applied"] is False
+    with session_factory() as session:
+        assert outcome_counts(session) == {"proposed": 2, "applied": 1, "waiting": 1}
+
+
+def test_scoring_survives_a_chat_with_no_character(client, session_factory) -> None:
+    headers = _auth_headers(client)
+    chat = client.post("/chats", json={}, headers=headers).json()
+    with session_factory() as session:
+        message_id = chat_store.add_message(
+            _stored_chat(session, chat["id"]), session, role="assistant", text="ответ"
+        ).id
+
+    response = client.patch(
+        f"/chats/{chat['id']}/messages/{message_id}",
+        json={"applied": True, "applied_paths": ["hp_current"]},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    with session_factory() as session:
+        assert outcome_counts(session)["proposed"] == 0
