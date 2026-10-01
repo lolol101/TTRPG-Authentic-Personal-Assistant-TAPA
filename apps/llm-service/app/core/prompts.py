@@ -1,6 +1,7 @@
 from typing import Any
 
 from app.core.history import Turn
+from app.rulesets import availability_note
 
 #: Replayed live chat, 2026-10-01: given one found page (Slow), the model
 #: listed Magic Missile, Color Spray and Sleep "по стандартным правилам" —
@@ -22,7 +23,11 @@ ASK_SYSTEM_INSTRUCTIONS = (
     "есть, и прямо скажи, чего в найденных правилах нет.\n\n"
     "Страницы нашёл поиск, а не прислал игрок: не пиши «как вы привели» или "
     "«в вашем запросе». Игрок не видит ни страниц, ни слова «контекст» — "
-    "говори «в книгах правил» или «в найденных правилах»."
+    "говори «в книгах правил» или «в найденных правилах».\n\n"
+    "Пометки в квадратных скобках после названия страницы — на каком уровне "
+    "персонажа открывается круг заклинания, черта или предмет и открыт ли он "
+    "уже — посчитаны программой. Бери эти уровни из пометок как есть и сам их "
+    "не вычисляй."
 )
 
 CHARACTER_INSTRUCTIONS = (
@@ -136,17 +141,29 @@ DIGEST_INSTRUCTIONS = (
 )
 
 
-def _fragments(retrieved: list[dict[str, Any]], with_text: bool = True) -> str:
+def _fragment_head(index: int, chunk: dict[str, Any], character_level: int | None) -> str:
+    head = (
+        f"[{index + 1}] {chunk['metadata']['title']} "
+        f"(источник: {chunk['metadata'].get('source_book') or 'неизвестен'})"
+    )
+    note = availability_note(chunk, character_level)
+    return f"{head} [{note}]" if note else head
+
+
+def _fragments(
+    retrieved: list[dict[str, Any]], with_text: bool = True, character_level: int | None = None
+) -> str:
     return "\n\n".join(
-        f"[{i + 1}] {r['metadata']['title']} "
-        f"(источник: {r['metadata'].get('source_book') or 'неизвестен'})"
-        + (f":\n{r['text']}" if with_text else "")
+        _fragment_head(i, r, character_level) + (f":\n{r['text']}" if with_text else "")
         for i, r in enumerate(retrieved)
     )
 
 
 def _context_block(
-    retrieved: list[dict[str, Any]], weak: bool = False, digest: str | None = None
+    retrieved: list[dict[str, Any]],
+    weak: bool = False,
+    digest: str | None = None,
+    character_level: int | None = None,
 ) -> str:
     if not retrieved:
         return NO_CONTEXT_NOTICE
@@ -154,9 +171,9 @@ def _context_block(
     if digest:
         return (
             f"{notice}Выжимка из найденных правил (номера в скобках — источники ниже):\n"
-            f"{digest}\n\nИсточники:\n{_fragments(retrieved, with_text=False)}"
+            f"{digest}\n\nИсточники:\n{_fragments(retrieved, False, character_level)}"
         )
-    return notice + _fragments(retrieved)
+    return notice + _fragments(retrieved, character_level=character_level)
 
 
 def build_narrowing_messages(
@@ -193,6 +210,7 @@ def build_ask_messages(
     retry_feedback: str | None = None,
     weak: bool = False,
     digest: str | None = None,
+    character_level: int | None = None,
 ) -> list[dict[str, Any]]:
     """Instructions, then the remembered turns, then this question.
 
@@ -220,13 +238,8 @@ def build_ask_messages(
         messages.append({"role": "user", "content": retry_feedback})
         return messages
 
+    rules = _context_block(retrieved, weak, digest, character_level)
     messages.append(
-        {
-            "role": "user",
-            "content": (
-                f"Найденные правила:\n{_context_block(retrieved, weak, digest)}\n\n"
-                f"Вопрос: {question}"
-            ),
-        }
+        {"role": "user", "content": f"Найденные правила:\n{rules}\n\nВопрос: {question}"}
     )
     return messages

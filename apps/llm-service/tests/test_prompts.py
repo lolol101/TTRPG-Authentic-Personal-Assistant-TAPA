@@ -292,3 +292,20 @@ def test_the_word_context_never_reaches_the_model_as_a_label() -> None:
 
     assert content.startswith("Найденные правила:")
     assert "контекст" not in content.lower()
+
+
+def test_a_found_spell_carries_its_level_note_into_the_answer_prompt() -> None:
+    """The model reads the level a spell needs instead of working it out —
+    the replayed chat had it put Slow "at level 3" from memory."""
+    slow = {
+        "id": "slow",
+        "text": "Slow\n\nSpell 3 · Traits: concentrate, manipulate\n\nYou dilate the flow of time.",
+        "metadata": {"title": "Slow", "ruleset": "pf2e", "traits": "concentrate, manipulate"},
+        "distance": 0.6,
+    }
+
+    content = _question(build_ask_messages("Подбери замедление", [slow], character_level=1))
+
+    assert "[1] Slow (источник: неизвестен) [заклинание 3-го круга" in content
+    assert "на 5-м уровне персонажа" in content
+    assert "ещё не открыт" in content

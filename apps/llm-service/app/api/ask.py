@@ -178,6 +178,7 @@ def _prepare_with_progress(
         history=fitted.messages,
         weak=weak,
         digest=context.digest,
+        character_level=payload.character_level,
     )
     return (context.chunks, messages, fitted, weak)
 
