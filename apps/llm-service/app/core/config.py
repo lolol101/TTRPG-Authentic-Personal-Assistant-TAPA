@@ -146,12 +146,13 @@ class Settings(BaseSettings):
 
     # Hits farther than this are dropped before the model sees them — the
     # coarse cut against outright garbage, not the judgement of relevance
-    # (that is context_mode's job). Set from the same measurement as
-    # retrieval_weak_distance: off-topic questions never landed closer than
-    # 0.90, so such a question reaches the model with no context at all and
-    # costs no selection call. Looser than the weak threshold on purpose:
-    # a supporting page at 0.87 may still be worth showing the selector.
-    retrieval_max_distance: float = 0.90
+    # (that is context_mode's job). Off-topic questions never landed closer
+    # than 0.90 and the first cut sat exactly there; it was loosened to 0.95
+    # so borderline pages reach the selector, which now keeps related pages
+    # too. The price: an off-topic question with hits in 0.90-0.95 pays for
+    # a selection call that should come back empty. Only for "off" does
+    # this cut alone decide what the answer reads.
+    retrieval_max_distance: float = 0.95
 
     # What stands between retrieval and the answer:
     #   "off"    — every hit within retrieval_max_distance goes in as is;

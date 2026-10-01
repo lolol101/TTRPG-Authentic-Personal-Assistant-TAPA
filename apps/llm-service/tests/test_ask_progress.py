@@ -165,7 +165,9 @@ def test_selection_is_announced_and_trims_the_sources(monkeypatch) -> None:
         context_select,
         "_ask",
         lambda question, retrieved: Completion(
-            text="", provider="test", tool_arguments={"pick_relevant_fragments": '{"numbers": [1]}'}
+            text="",
+            provider="test",
+            tool_arguments={"pick_relevant_fragments": '{"main": [1], "related": []}'},
         ),
     )
     _stub_stream(monkeypatch)

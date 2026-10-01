@@ -72,31 +72,78 @@ def test_nothing_retrieved_costs_no_call(monkeypatch, mode) -> None:
     assert context_select.narrow("столица Франции", []).chunks == []
 
 
-def test_select_keeps_only_the_named_fragments_in_retrieval_order(monkeypatch) -> None:
+def test_select_puts_the_main_fragments_first_then_the_related(monkeypatch) -> None:
+    """The answer reads the front of its context most closely, so what the
+    question is about goes first; the related pages follow, and both are
+    listed under the answer because both were read."""
     monkeypatch.setattr(settings, "context_mode", "select")
-    _answers(monkeypatch, PICK_FRAGMENTS, {"numbers": [3, 1]})
+    _answers(monkeypatch, PICK_FRAGMENTS, {"main": [3], "related": [1]})
 
-    context = context_select.narrow("Могу ли я схватить, если напуган?", HITS)
+    context = context_select.narrow("Что делает Frightened?", HITS)
 
-    assert _titles(context.chunks) == ["Grapple", "Frightened"]
+    assert _titles(context.chunks) == ["Frightened", "Grapple"]
     assert context.digest is None
+
+
+def test_select_drops_only_what_is_neither_main_nor_related(monkeypatch) -> None:
+    """Measured live: told to keep only what answers "по существу", the
+    selector cut "Толчок" from five pages to one, and players lost the
+    related feats they wanted to see. Only the unrelated goes now."""
+    monkeypatch.setattr(settings, "context_mode", "select")
+    _answers(monkeypatch, PICK_FRAGMENTS, {"main": [2], "related": [1]})
+
+    assert _titles(context_select.narrow("Что делает Толчок?", HITS).chunks) == [
+        "Shove",
+        "Grapple",
+    ]
+
+
+def test_select_keeps_each_page_in_retrieval_order_within_its_group(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "context_mode", "select")
+    _answers(monkeypatch, PICK_FRAGMENTS, {"main": [3, 1], "related": []})
+
+    assert _titles(context_select.narrow("вопрос", HITS).chunks) == ["Grapple", "Frightened"]
+
+
+def test_a_page_named_in_both_groups_counts_as_main_once(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "context_mode", "select")
+    _answers(monkeypatch, PICK_FRAGMENTS, {"main": [2], "related": [2, 1]})
+
+    assert _titles(context_select.narrow("вопрос", HITS).chunks) == ["Shove", "Grapple"]
+
+
+def test_related_pages_alone_still_reach_the_answer(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "context_mode", "select")
+    _answers(monkeypatch, PICK_FRAGMENTS, {"main": [], "related": [2]})
+
+    assert _titles(context_select.narrow("вопрос", HITS).chunks) == ["Shove"]
+
+
+def test_a_missing_related_list_means_none_related(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "context_mode", "select")
+    _answers(monkeypatch, PICK_FRAGMENTS, {"main": [1]})
+
+    assert _titles(context_select.narrow("вопрос", HITS).chunks) == ["Grapple"]
 
 
 def test_select_with_nothing_relevant_leaves_no_context(monkeypatch) -> None:
     monkeypatch.setattr(settings, "context_mode", "select")
-    _answers(monkeypatch, PICK_FRAGMENTS, {"numbers": []})
+    _answers(monkeypatch, PICK_FRAGMENTS, {"main": [], "related": []})
 
     assert context_select.narrow("Что такое THAC0?", HITS).chunks == []
 
 
 def test_select_ignores_numbers_that_name_no_fragment(monkeypatch) -> None:
     monkeypatch.setattr(settings, "context_mode", "select")
-    _answers(monkeypatch, PICK_FRAGMENTS, {"numbers": [0, 2, "2", 9, "x"]})
+    _answers(monkeypatch, PICK_FRAGMENTS, {"main": [0, 2, "2", 9, "x"], "related": [-1]})
 
     assert _titles(context_select.narrow("вопрос", HITS).chunks) == ["Shove"]
 
 
-@pytest.mark.parametrize("broken", ["not json", "[]", '{"numbers": "1"}', "{}"])
+@pytest.mark.parametrize(
+    "broken",
+    ["not json", "[]", '{"main": "1"}', "{}", '{"main": [1], "related": "2"}'],
+)
 def test_an_unreadable_selection_keeps_everything(monkeypatch, broken) -> None:
     monkeypatch.setattr(settings, "context_mode", "select")
     _answers(monkeypatch, PICK_FRAGMENTS, broken)

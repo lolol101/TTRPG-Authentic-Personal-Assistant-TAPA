@@ -74,11 +74,15 @@ def _ask(question: str, retrieved: list[dict[str, Any]]) -> Completion:
 
 def _selected(completion: Completion, retrieved: list[dict[str, Any]]) -> RulesContext:
     raw = completion.tool_arguments.get(PICK_FRAGMENTS)
-    numbers = parse_picked_fragments(raw, len(retrieved)) if raw else None
-    if numbers is None:
+    picked = parse_picked_fragments(raw, len(retrieved)) if raw else None
+    if picked is None:
         _log.warning("fragment selection unreadable; keeping all %d hits", len(retrieved))
         return RulesContext(retrieved)
-    return RulesContext([retrieved[number - 1] for number in numbers])
+    main, related = picked
+    # Main first: the answering model reads the front of its context most
+    # closely. Related pages follow because they were read, so they belong
+    # in the sources under the answer too.
+    return RulesContext([retrieved[number - 1] for number in main + related])
 
 
 def _digested(completion: Completion, retrieved: list[dict[str, Any]]) -> RulesContext:

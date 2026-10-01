@@ -288,20 +288,31 @@ PICK_FRAGMENTS_TOOL: dict[str, Any] = {
     "function": {
         "name": PICK_FRAGMENTS,
         "description": (
-            "Назвать номера фрагментов правил, которые помогают ответить на "
-            "вопрос игрока. Вызывай всегда; если не подходит ни один — с "
-            "пустым списком."
+            "Разделить фрагменты правил на главные и связанные с вопросом "
+            "игрока. Фрагмент, не попавший ни в один список, отбрасывается. "
+            "Вызывай всегда; если не подходит ни один — с пустыми списками."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "numbers": {
+                "main": {
                     "type": "array",
                     "items": {"type": "integer"},
-                    "description": "Номера подходящих фрагментов из списка, например [1, 3].",
-                }
+                    "description": (
+                        "Номера фрагментов о том самом, о чём спрашивают, например [1]."
+                    ),
+                },
+                "related": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": (
+                        "Номера фрагментов на ту же тему, полезных игроку рядом "
+                        "с ответом: варианты, черты и заклинания с этим "
+                        "действием, связанные состояния. Например [2, 4]."
+                    ),
+                },
             },
-            "required": ["numbers"],
+            "required": ["main", "related"],
         },
     },
 }
@@ -360,12 +371,13 @@ def _fragment_numbers(raw: Any, total: int) -> list[int] | None:
     return sorted(numbers)
 
 
-def parse_picked_fragments(raw_arguments: str, total: int) -> list[int] | None:
-    """The fragments a pick call named; None when the call is unusable.
+def parse_picked_fragments(raw_arguments: str, total: int) -> tuple[list[int], list[int]] | None:
+    """The main and the related fragments a pick call named; None if unusable.
 
-    An empty list is a real answer — nothing bears on the question — and is
+    Empty lists are a real answer — nothing bears on the question — and are
     told apart from a call that could not be read, which keeps the request
-    on everything it retrieved.
+    on everything it retrieved. A missing related list reads as none
+    related; a page named in both groups counts as main.
     """
     try:
         parsed = json.loads(raw_arguments)
@@ -373,7 +385,12 @@ def parse_picked_fragments(raw_arguments: str, total: int) -> list[int] | None:
         return None
     if not isinstance(parsed, dict):
         return None
-    return _fragment_numbers(parsed.get("numbers"), total)
+
+    main = _fragment_numbers(parsed.get("main"), total)
+    related = _fragment_numbers(parsed.get("related", []), total)
+    if main is None or related is None:
+        return None
+    return main, [number for number in related if number not in main]
 
 
 def parse_extract(raw_arguments: str, total: int) -> tuple[str, list[int]] | None:
