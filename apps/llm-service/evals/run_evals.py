@@ -48,8 +48,9 @@ def run(url: str) -> int:
 
     for case in cases:
         body = {"question": case["question"]}
-        if case.get("character_context"):
-            body["character_context"] = case["character_context"]
+        for key in ("character_context", "character_level", "history"):
+            if case.get(key):
+                body[key] = case[key]
 
         try:
             response = httpx.post(f"{url}/ask", json=body, timeout=120.0)

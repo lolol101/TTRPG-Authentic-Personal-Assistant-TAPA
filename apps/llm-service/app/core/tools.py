@@ -34,9 +34,11 @@ SHEET_CHANGE_TOOL: dict[str, Any] = {
                                 "description": (
                                     "Что менять. Числа: hp_current, hp_max, level, ac, "
                                     "speed, str_mod, dex_mod, con_mod, int_mod, wis_mod, "
-                                    "cha_mod, sheet_data.ability_scores.<str|dex|con|int|"
-                                    "wis|cha> (значение характеристики — заполняй его вместе "
-                                    "с соответствующим *_mod, значение = 10 + 2×модификатор), "
+                                    "cha_mod (модификаторы — поля верхнего уровня, без "
+                                    "sheet_data), sheet_data.ability_scores.<str|dex|con|int|"
+                                    "wis|cha> (значение характеристики: только эти шесть "
+                                    "ключей, без _mod; заполняй его вместе с модификатором "
+                                    "<x>_mod, значение = 10 + 2×модификатор), "
                                     "sheet_data.hero_points, sheet_data.dying, "
                                     "sheet_data.wounded, sheet_data.conditions.<состояние>, "
                                     "sheet_data.stats.<характеристика>.rank|item|temporary. "
@@ -213,20 +215,30 @@ SEARCH_QUERY_TOOL: dict[str, Any] = {
     "function": {
         "name": REWRITE_SEARCH_QUERY,
         "description": (
-            "Дать английские поисковые запросы по книге правил для вопроса "
-            "игрока. Книги правил на английском, поэтому русский вопрос "
-            "находит нужную страницу заметно хуже. Вызывай, если вопрос не "
-            "на английском или сформулирован разговорно. Если вопрос уже "
-            "короткий и английский — не вызывай инструмент вовсе."
+            "Подготовить новый вопрос игрока к поиску: переписать его так, "
+            "чтобы он был понятен без переписки, и дать английские поисковые "
+            "запросы по книге правил. Вызывай всегда."
         ),
         "parameters": {
             "type": "object",
             "properties": {
+                "standalone_question": {
+                    "type": "string",
+                    "description": (
+                        "Новый вопрос по-русски, понятный без переписки. Если "
+                        "он ссылается на прошлое («он», «а если», «второй "
+                        "вариант», «а для мага?») — подставь, о ком и о чём "
+                        "речь. Если он о новом — оставь его как есть и не "
+                        "добавляй прошлую тему: «Что я могу купить?» после "
+                        "разговора о заклинаниях — это вопрос о покупках."
+                    ),
+                },
                 "queries": {
                     "type": "array",
                     "items": {"type": "string"},
                     "description": (
-                        "По одному короткому запросу на каждое правило, о "
+                        "Для standalone_question: по одному короткому "
+                        "английскому запросу на каждое правило, о "
                         "котором спрашивают. Запрос — это термин из книги: "
                         "название действия, черты, заклинания, снаряжения, "
                         "состояния. Не переводи дословно и не пиши "
@@ -239,12 +251,32 @@ SEARCH_QUERY_TOOL: dict[str, Any] = {
                         "одно правило на несколько запросов и не добавляй "
                         "правила, о которых не спрашивали."
                     ),
-                }
+                },
             },
-            "required": ["queries"],
+            "required": ["standalone_question", "queries"],
         },
     },
 }
+
+#: Past this the model is answering, not restating.
+MAX_STANDALONE_CHARS = 500
+
+
+def parse_standalone_question(raw_arguments: str) -> str | None:
+    """The question as it reads without the dialogue, or None if unusable."""
+    try:
+        parsed = json.loads(raw_arguments)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    standalone = parsed.get("standalone_question")
+    if not isinstance(standalone, str):
+        return None
+    standalone = standalone.strip()
+    if not standalone or len(standalone) > MAX_STANDALONE_CHARS:
+        return None
+    return standalone
 
 
 def parse_search_queries(raw_arguments: str) -> list[str]:
@@ -279,6 +311,145 @@ def parse_search_queries(raw_arguments: str) -> list[str]:
         seen.add(query.casefold())
         queries.append(query)
     return queries
+
+
+PICK_FRAGMENTS = "pick_relevant_fragments"
+
+PICK_FRAGMENTS_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": PICK_FRAGMENTS,
+        "description": (
+            "Разделить фрагменты правил на главные и связанные с вопросом "
+            "игрока. Фрагмент, не попавший ни в один список, отбрасывается. "
+            "Вызывай всегда; если не подходит ни один — с пустыми списками."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "main": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": (
+                        "Номера фрагментов о том самом, о чём спрашивают, например [1]."
+                    ),
+                },
+                "related": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": (
+                        "Номера фрагментов на ту же тему, полезных игроку рядом "
+                        "с ответом: варианты, черты и заклинания с этим "
+                        "действием, связанные состояния. Например [2, 4]."
+                    ),
+                },
+            },
+            "required": ["main", "related"],
+        },
+    },
+}
+
+
+WRITE_EXTRACT = "write_rules_extract"
+
+WRITE_EXTRACT_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": WRITE_EXTRACT,
+        "description": (
+            "Передать выжимку из фрагментов правил, нужную для ответа на "
+            "вопрос игрока. Вызывай всегда; если не подходит ни один "
+            "фрагмент — с пустыми extract и used."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "extract": {
+                    "type": "string",
+                    "description": (
+                        "Всё из фрагментов, что нужно для ответа: условия, "
+                        "ограничения, числа. После каждого утверждения — номер "
+                        "фрагмента в квадратных скобках, например [2]."
+                    ),
+                },
+                "used": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "Номера фрагментов, на которые опирается выжимка.",
+                },
+            },
+            "required": ["extract", "used"],
+        },
+    },
+}
+
+
+def _fragment_numbers(raw: Any, total: int) -> list[int] | None:
+    """1-based numbers within range, deduplicated, in the order retrieved.
+
+    Retrieval order is kept rather than the model's: the English-rewrite
+    hits come first, and the answering model reads the front most closely.
+    """
+    if not isinstance(raw, list):
+        return None
+    numbers: set[int] = set()
+    for item in raw:
+        try:
+            number = int(item)
+        except (TypeError, ValueError):
+            continue
+        if 1 <= number <= total:
+            numbers.add(number)
+    return sorted(numbers)
+
+
+def parse_picked_fragments(raw_arguments: str, total: int) -> tuple[list[int], list[int]] | None:
+    """The main and the related fragments a pick call named; None if unusable.
+
+    Empty lists are a real answer — nothing bears on the question — and are
+    told apart from a call that could not be read, which keeps the request
+    on everything it retrieved. A missing related list reads as none
+    related; a page named in both groups counts as main.
+    """
+    try:
+        parsed = json.loads(raw_arguments)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+
+    main = _fragment_numbers(parsed.get("main"), total)
+    related = _fragment_numbers(parsed.get("related", []), total)
+    if main is None or related is None:
+        return None
+    return main, [number for number in related if number not in main]
+
+
+def parse_extract(raw_arguments: str, total: int) -> tuple[str, list[int]] | None:
+    """The extract and the fragments it rests on; None when unusable.
+
+    An extract with no fragments behind it cannot be cited, and fragments
+    with no extract have nothing to answer from — both are unusable, while
+    both empty means nothing bears on the question.
+    """
+    try:
+        parsed = json.loads(raw_arguments)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+
+    extract = parsed.get("extract")
+    if not isinstance(extract, str):
+        return None
+    used = _fragment_numbers(parsed.get("used"), total)
+    if used is None:
+        return None
+
+    extract = extract.strip()
+    if bool(extract) != bool(used):
+        return None
+    return extract, used
 
 
 PLAN_SHEET_WORK = "plan_sheet_work"

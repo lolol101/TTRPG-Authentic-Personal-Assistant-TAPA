@@ -113,9 +113,7 @@ def test_accepts_an_ability_score_paired_with_its_modifier() -> None:
 
 
 def test_ability_score_defaults_its_before_value_to_ten() -> None:
-    resolved = resolve_change(
-        _character(), ProposedChange("sheet_data.ability_scores.dex", 14)
-    )
+    resolved = resolve_change(_character(), ProposedChange("sheet_data.ability_scores.dex", 14))
 
     assert resolved.before == 10
 
@@ -687,3 +685,84 @@ def test_an_empty_list_on_a_card_becomes_an_empty_line() -> None:
     )
 
     assert resolved.value[0]["traits"] == ""
+
+
+def test_a_modifier_filed_under_ability_scores_lands_on_its_column() -> None:
+    """Live sheet build, 2026-10-01: all six modifiers were written to
+    sheet_data.ability_scores.<x>_mod and refused as unknown abilities,
+    though the intent was never in doubt."""
+    resolved = resolve_change(_character(), ProposedChange("sheet_data.ability_scores.str_mod", 2))
+
+    assert resolved.path == "str_mod"
+
+
+def test_a_card_list_named_without_its_folder_is_accepted() -> None:
+    """Seen live on a retry: told sheet_data.feats.class did not exist, the
+    model tried class_feats — the right list, minus its folder."""
+    resolved = resolve_change(
+        _character(), ProposedChange("class_feats", [{"name": "Reach Spell"}])
+    )
+
+    assert resolved.path == "sheet_data.class_feats"
+
+
+@pytest.mark.parametrize(
+    ("path", "hint"),
+    [
+        ("sheet_data.feats.class", "sheet_data.class_feats"),
+        ("sheet_data.cantrips", "sheet_data.spells"),
+        ("sheet_data.bio", "sheet_data.bio.<ethnicity|"),
+        ("sheet_data.conditions", "sheet_data.conditions.<"),
+        ("sheet_data.stats.int.rank", "sheet_data.ability_scores.int"),
+        ("sheet_data.stats.academic_lore.rank", "есть только: acrobatics"),
+        ("sheet_stats.medicine.rank", "«sheet_data.stats.medicine.rank»"),
+    ],
+)
+def test_a_refused_path_says_where_it_should_have_gone(path, hint) -> None:
+    """Each of these was refused live with only "unavailable" or "unknown",
+    and the retry guessed again and missed again."""
+    _, rejected = resolve_changes(_character(), [ProposedChange(path, "x")])
+
+    assert hint in rejected[0]
+
+
+def test_a_refused_value_gets_no_path_hint() -> None:
+    """The path is right and the reason already names what is wrong with
+    the value; a "did you mean" there would send the model elsewhere."""
+    _, rejected = resolve_changes(
+        _character(), [ProposedChange("sheet_data.ability_scores.str", 99)]
+    )
+
+    assert "возможно" not in rejected[0]
+    assert "списков" not in rejected[0]
+
+
+def test_every_rejection_names_the_path_it_was_about() -> None:
+    """Read back by the model on the retry: without the path, "unknown
+    ability: luck" does not say which of forty proposals to fix."""
+    _, rejected = resolve_changes(
+        _character(), [ProposedChange("sheet_data.ability_scores.luck", 14)]
+    )
+
+    assert rejected[0].startswith("sheet_data.ability_scores.luck: ")
+
+
+def test_an_absent_condition_sent_as_false_is_told_to_be_left_out() -> None:
+    """Seen live: a sheet build sent all 31 conditions as False. "Expected a
+    number" alone invites the model to send 31 zeros instead."""
+    with pytest.raises(ChangeRejected, match="не присылай это поле"):
+        resolve_change(_character(), ProposedChange("sheet_data.conditions.prone", False))
+
+
+@pytest.mark.parametrize(
+    ("path", "stat"),
+    [
+        ("sheet_data.arcana", "arcana"),
+        ("sheet_data.saving_throws.fort", "fortitude"),
+        ("sheet_data.skills.perception", "perception"),
+    ],
+)
+def test_a_skill_or_save_under_the_wrong_folder_is_shown_the_stats_form(path, stat) -> None:
+    _, rejected = resolve_changes(_character(), [ProposedChange(path, "trained")])
+
+    assert f"sheet_data.stats.{stat}.<rank|item|temporary>" in rejected[0]

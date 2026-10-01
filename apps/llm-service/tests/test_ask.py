@@ -3,6 +3,7 @@ from openai import OpenAIError
 
 from app.api import ask
 from app.core.llm_provider import Completion, LLMNotConfiguredError
+from app.core.query_rewrite import Rewrite
 from app.main import app
 
 client = TestClient(app)
@@ -77,6 +78,9 @@ def test_ask_passes_k_through_to_retrieve(monkeypatch) -> None:
 
     monkeypatch.setattr(ask, "retrieve", _fake_retrieve)
     monkeypatch.setattr(ask, "complete", lambda prompt, tools=None: Completion("ok"))
+    # Not patched, the rewrite reached the live provider and searched its
+    # own restatement last.
+    monkeypatch.setattr(ask, "rewrite_question", lambda question, history: Rewrite())
 
     client.post("/ask", json={"question": "вопрос про Удар", "k": 3})
 

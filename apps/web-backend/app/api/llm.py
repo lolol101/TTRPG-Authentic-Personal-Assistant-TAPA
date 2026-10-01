@@ -87,17 +87,26 @@ def _retry_feedback_text(resolved: list[dict], rejected: list[str]) -> str:
     """
     lines = ["Код проверил предложенные изменения листа."]
     if resolved:
-        lines.append("Принято без вопросов:")
-        lines.extend(f"- {change['path']} = {change['value']!r}" for change in resolved)
+        lines.append(
+            "Уже принято и сохранено в предложении, повторять не нужно: "
+            + ", ".join(change["path"] for change in resolved)
+        )
     lines.append("Отклонено кодом:")
     lines.extend(f"- {reason}" for reason in rejected)
     lines.append(
-        "Пришли исправленный список изменений целиком тем же вызовом "
-        "propose_sheet_change — всё, что должно остаться в силе, а не "
-        "только отклонённое. Если отклонённое было ошибкой не в пути, а "
-        "в самом факте изменения, просто не включай его снова."
+        "Пришли тем же вызовом propose_sheet_change только исправленные "
+        "изменения вместо отклонённых. Если отклонённое было ошибкой не в "
+        "пути, а в самом факте изменения, просто не присылай его."
     )
     return "\n".join(lines)
+
+
+def _merge(resolved: list[dict], corrections: list[dict]) -> list[dict]:
+    """The accepted proposal with corrections laid over it, path by path."""
+    by_path = {change["path"]: change for change in resolved}
+    for change in corrections:
+        by_path[change["path"]] = change
+    return list(by_path.values())
 
 
 def _ask_llm_service(body: dict) -> dict:
@@ -127,38 +136,44 @@ def _retry_with_feedback(
     resolved: list[dict],
     rejected: list[str],
 ) -> tuple[list[dict], list[str]]:
-    """One chance for the model to fix what the checker rejected.
+    """A few chances for the model to correct what the checker rejected.
 
-    Not a loop: the tool's own description already states the schema, and a
-    model that still misses it is not reliably fixed by asking indefinitely.
-    One retry, and only if it does not leave the player with less than the
-    first attempt already had — the model's second guess is not
-    automatically the better one.
+    Each round asks only for corrections and lays them over what was already
+    accepted. Asking for the whole list again, as this once did, meant a
+    40-change sheet build had to be restated without a single loss for six
+    fixes to count — measured live, it was not, and the six stayed refused.
+    Bounded by sheet_edit_retry_attempts: a model that still misses after a
+    couple of precise reasons is not reliably fixed by asking again.
 
-    No rules are searched for this leg (see llm-service's handling of
+    No rules are searched for these legs (see llm-service's handling of
     retry_feedback): this is not a new question, so no embedding call is
     made for it either.
     """
-    retry_body = _request_body(payload, conversation)
-    retry_body["history"] = [
-        *conversation.history,
-        {"role": "user", "text": payload.question},
-        {"role": "assistant", "text": first_answer},
-    ]
-    retry_body["retry_feedback"] = _retry_feedback_text(resolved, rejected)
+    for _ in range(settings.sheet_edit_retry_attempts):
+        if not rejected:
+            break
+        retry_body = _request_body(payload, conversation)
+        retry_body["history"] = [
+            *conversation.history,
+            {"role": "user", "text": payload.question},
+            {"role": "assistant", "text": first_answer},
+        ]
+        retry_body["retry_feedback"] = _retry_feedback_text(resolved, rejected)
 
-    try:
-        retry_response = _ask_llm_service(retry_body)
-    except HTTPException:
-        # Best effort: the first attempt already gave the player something
-        # real, and a broken correction step must not take that away.
-        return resolved, rejected
+        try:
+            retry_response = _ask_llm_service(retry_body)
+        except HTTPException:
+            # Best effort: the player already has something real, and a
+            # broken correction step must not take that away.
+            break
 
-    retry_proposals = retry_response.get("proposed_changes") or []
-    retry_resolved, retry_rejected = _check_proposals(conversation.character, retry_proposals)
+        corrections = retry_response.get("proposed_changes") or []
+        if not corrections:
+            # Silence is not a fix: the refusals stay visible to the player.
+            break
+        accepted, rejected = _check_proposals(conversation.character, corrections)
+        resolved = _merge(resolved, accepted)
 
-    if len(retry_resolved) >= len(resolved):
-        return retry_resolved, retry_rejected
     return resolved, rejected
 
 
@@ -227,6 +242,9 @@ def _open_conversation(payload: AskRequest, current_user: User, session: Session
 def _request_body(payload: AskRequest, conversation: _Conversation) -> dict:
     body = payload.model_dump(exclude={"character_id", "chat_id"})
     body["character_context"] = conversation.character_context
+    # Apart from the rendered sheet: llm-service compares it against what a
+    # found spell or item requires, in code, so the model never has to.
+    body["character_level"] = conversation.character.level if conversation.character else None
     body["allow_sheet_edits"] = conversation.character is not None
     # A character settles which rules apply; asking Pathfinder questions of a
     # D&D sheet is a mistake the app should not be able to make.

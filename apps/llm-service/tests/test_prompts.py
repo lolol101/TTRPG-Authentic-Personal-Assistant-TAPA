@@ -35,7 +35,7 @@ def test_build_ask_prompt_includes_context_and_question() -> None:
 def test_build_ask_prompt_handles_no_context() -> None:
     prompt = _question(build_ask_messages("Вопрос без ответа", []))
 
-    assert "контекст не найден" in prompt.lower()
+    assert "ничего подходящего" in prompt.lower()
     assert "Вопрос без ответа" in prompt
 
 
@@ -65,12 +65,12 @@ def test_a_confident_retrieval_carries_no_weak_notice() -> None:
 
 
 def test_weak_is_not_said_about_an_already_empty_context() -> None:
-    """Empty context already reads as "контекст не найден" — a second,
+    """Empty context already reads as "nothing found" — a second,
     differently worded caveat on top of it would say the same thing twice."""
     prompt = _question(build_ask_messages("вопрос", [], weak=True))
 
     assert "не подгоняй" not in prompt.lower()
-    assert "контекст не найден" in prompt.lower()
+    assert "ничего подходящего" in prompt.lower()
 
 
 def test_build_ask_prompt_numbers_multiple_sources() -> None:
@@ -240,3 +240,72 @@ def test_edit_instructions_forbid_inventing_a_field_the_page_omits() -> None:
     prompt = build_system_prompt("Персонаж: Рэм", allow_sheet_edits=True)
 
     assert "оставь пустым" in prompt
+
+
+def test_a_digest_replaces_the_page_text_but_keeps_the_sources() -> None:
+    """In digest mode the extract is what the model reads; the pages are
+    still named so its citations have something to point at."""
+    retrieved = [
+        {
+            "id": "g",
+            "text": "FULL PAGE TEXT",
+            "metadata": {"title": "Grapple", "source_book": "Player Core"},
+            "distance": 0.6,
+        }
+    ]
+
+    content = _question(
+        build_ask_messages("Как работает захват?", retrieved, digest="Needs a free hand [1].")
+    )
+
+    assert "Needs a free hand [1]." in content
+    assert "[1] Grapple (источник: Player Core)" in content
+    assert "FULL PAGE TEXT" not in content
+
+
+def test_an_empty_context_forbids_answering_rules_from_memory() -> None:
+    """Measured: told only "(контекст не найден)", the model wrote Sickened
+    out from memory, wrongly. The sheet's numbers stay usable — a question
+    about the character needs no rulebook page."""
+    content = _question(build_ask_messages("Что делает Sickened?", []))
+
+    assert "по памяти" in content
+    assert "лист" in content
+
+
+def test_every_named_rule_must_stand_on_a_found_page() -> None:
+    """Replayed live chat: with one page found, the model filled a spell
+    list from memory "по стандартным правилам". The rule has to be stated
+    per claim and name that supplement, or it is read as allowed."""
+    prompt = build_system_prompt()
+
+    assert "должно стоять на этих страницах" in prompt
+    assert "по стандартным правилам" in prompt
+
+
+def test_the_word_context_never_reaches_the_model_as_a_label() -> None:
+    """The player never sees a "контекст"; a model shown that word as the
+    heading of its material repeats it in 8 answers of 9 (measured)."""
+    retrieved = [{"id": "a", "text": "текст A", "metadata": {"title": "A"}, "distance": 0.5}]
+
+    content = _question(build_ask_messages("вопрос", retrieved))
+
+    assert content.startswith("Найденные правила:")
+    assert "контекст" not in content.lower()
+
+
+def test_a_found_spell_carries_its_level_note_into_the_answer_prompt() -> None:
+    """The model reads the level a spell needs instead of working it out —
+    the replayed chat had it put Slow "at level 3" from memory."""
+    slow = {
+        "id": "slow",
+        "text": "Slow\n\nSpell 3 · Traits: concentrate, manipulate\n\nYou dilate the flow of time.",
+        "metadata": {"title": "Slow", "ruleset": "pf2e", "traits": "concentrate, manipulate"},
+        "distance": 0.6,
+    }
+
+    content = _question(build_ask_messages("Подбери замедление", [slow], character_level=1))
+
+    assert "[1] Slow (источник: неизвестен) [заклинание 3-го круга" in content
+    assert "на 5-м уровне персонажа" in content
+    assert "ещё не открыт" in content
