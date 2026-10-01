@@ -80,15 +80,60 @@ WEAK_RETRIEVAL_NOTICE = (
 )
 
 
-def _context_block(retrieved: list[dict[str, Any]], weak: bool = False) -> str:
+SELECT_INSTRUCTIONS = (
+    "Ты отбираешь фрагменты книг правил Pathfinder 2e для ответа на вопрос "
+    "игрока. Ниже вопрос и пронумерованные фрагменты. Вызови инструмент и "
+    "перечисли номера фрагментов, которые помогают ответить по существу: "
+    "описывают то правило, действие, состояние, предмет или заклинание, о "
+    "котором спрашивают, или то, без чего ответ будет неполным. Фрагменты, "
+    "совпавшие только по слову или говорящие о другом, не бери. Если не "
+    "подходит ни один — вызови инструмент с пустым списком. На сам вопрос не "
+    "отвечай."
+)
+
+DIGEST_INSTRUCTIONS = (
+    "Ты готовишь выжимку из книг правил Pathfinder 2e для ответа на вопрос "
+    "игрока. Ниже вопрос и пронумерованные фрагменты. Вызови инструмент: в "
+    "extract перенеси из подходящих фрагментов всё, что нужно для ответа — "
+    "условия, ограничения, числа — по-английски и словами книги, без "
+    "собственных выводов и без того, чего во фрагментах нет. После каждого "
+    "утверждения ставь номер фрагмента в квадратных скобках. В used перечисли "
+    "номера фрагментов, на которые опирается выжимка. Если не подходит ни один "
+    "фрагмент — передай пустые extract и used. На сам вопрос не отвечай."
+)
+
+
+def _fragments(retrieved: list[dict[str, Any]], with_text: bool = True) -> str:
+    return "\n\n".join(
+        f"[{i + 1}] {r['metadata']['title']} "
+        f"(источник: {r['metadata'].get('source_book') or 'неизвестен'})"
+        + (f":\n{r['text']}" if with_text else "")
+        for i, r in enumerate(retrieved)
+    )
+
+
+def _context_block(
+    retrieved: list[dict[str, Any]], weak: bool = False, digest: str | None = None
+) -> str:
     if not retrieved:
         return "(контекст не найден)"
     notice = WEAK_RETRIEVAL_NOTICE if weak else ""
-    return notice + "\n\n".join(
-        f"[{i + 1}] {r['metadata']['title']} "
-        f"(источник: {r['metadata'].get('source_book') or 'неизвестен'}):\n{r['text']}"
-        for i, r in enumerate(retrieved)
-    )
+    if digest:
+        return (
+            f"{notice}Выжимка из найденных правил (номера в скобках — источники ниже):\n"
+            f"{digest}\n\nИсточники:\n{_fragments(retrieved, with_text=False)}"
+        )
+    return notice + _fragments(retrieved)
+
+
+def build_narrowing_messages(
+    instructions: str, question: str, retrieved: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """The selection or digest call: the question and every fragment, numbered."""
+    return [
+        {"role": "system", "content": instructions},
+        {"role": "user", "content": f"Вопрос: {question}\n\nФрагменты:\n{_fragments(retrieved)}"},
+    ]
 
 
 def build_system_prompt(
@@ -114,6 +159,7 @@ def build_ask_messages(
     history: list[Turn] | None = None,
     retry_feedback: str | None = None,
     weak: bool = False,
+    digest: str | None = None,
 ) -> list[dict[str, Any]]:
     """Instructions, then the remembered turns, then this question.
 
@@ -144,7 +190,9 @@ def build_ask_messages(
     messages.append(
         {
             "role": "user",
-            "content": f"Контекст:\n{_context_block(retrieved, weak)}\n\nВопрос: {question}",
+            "content": (
+                f"Контекст:\n{_context_block(retrieved, weak, digest)}\n\nВопрос: {question}"
+            ),
         }
     )
     return messages

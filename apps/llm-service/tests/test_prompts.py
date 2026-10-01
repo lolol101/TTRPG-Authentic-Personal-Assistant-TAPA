@@ -240,3 +240,24 @@ def test_edit_instructions_forbid_inventing_a_field_the_page_omits() -> None:
     prompt = build_system_prompt("Персонаж: Рэм", allow_sheet_edits=True)
 
     assert "оставь пустым" in prompt
+
+
+def test_a_digest_replaces_the_page_text_but_keeps_the_sources() -> None:
+    """In digest mode the extract is what the model reads; the pages are
+    still named so its citations have something to point at."""
+    retrieved = [
+        {
+            "id": "g",
+            "text": "FULL PAGE TEXT",
+            "metadata": {"title": "Grapple", "source_book": "Player Core"},
+            "distance": 0.6,
+        }
+    ]
+
+    content = _question(
+        build_ask_messages("Как работает захват?", retrieved, digest="Needs a free hand [1].")
+    )
+
+    assert "Needs a free hand [1]." in content
+    assert "[1] Grapple (источник: Player Core)" in content
+    assert "FULL PAGE TEXT" not in content

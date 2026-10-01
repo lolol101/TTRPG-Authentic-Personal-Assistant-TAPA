@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from openai import OpenAIError
 
 from app.core.config import settings
+from app.core.context_select import narrow, within_distance
 from app.core.history import FittedHistory, Turn, fit_history, retrieval_query
 from app.core.llm_provider import Completion, LLMNotConfiguredError, complete, stream
 from app.core.prompts import build_ask_messages
@@ -120,6 +121,11 @@ def _prepare_with_progress(
         yield event("stage", {"stage": "planning"})
         steps = plan_for(payload.question)
 
+    # Searched against the whole history, not the trimmed part: a follow-up
+    # should still find the right rule page even when the turn it leans on
+    # has already slid out of the model's window.
+    query = retrieval_query(payload.question, turns)
+
     retrieved: list[dict] = []
     seen: set[str] = set()
     if steps:
@@ -139,11 +145,6 @@ def _prepare_with_progress(
                 retrieve(step.query, payload.k, ruleset=payload.ruleset, categories=categories),
             )
     else:
-        # Searched against the whole history, not the trimmed part: a follow-up
-        # should still find the right rule page even when the turn it leans on
-        # has already slid out of the model's window.
-        query = retrieval_query(payload.question, turns)
-
         english: list[str] = []
         if settings.retrieval_rewrite_query:
             yield event("stage", {"stage": "rewriting"})
@@ -161,16 +162,24 @@ def _prepare_with_progress(
             _collect(retrieved, seen, retrieve(one, payload.k, ruleset=payload.ruleset))
         _collect(retrieved, seen, retrieve(query, payload.k, ruleset=payload.ruleset))
 
-    weak = is_weak(retrieved)
+    retrieved = within_distance(retrieved)
+    if settings.context_mode != "off" and retrieved:
+        yield event("stage", {"stage": "selecting"})
+    context = narrow(query, retrieved)
+
+    # Judged on what the answer is built from: sources listed under it are
+    # the pages it read, not everything the search happened to bring back.
+    weak = is_weak(context.chunks)
     messages = build_ask_messages(
         payload.question,
-        retrieved,
+        context.chunks,
         payload.character_context,
         allow_sheet_edits=payload.allow_sheet_edits,
         history=fitted.messages,
         weak=weak,
+        digest=context.digest,
     )
-    return (retrieved, messages, fitted, weak)
+    return (context.chunks, messages, fitted, weak)
 
 
 def _prepare(payload: AskRequest) -> tuple[list[dict], list[dict], FittedHistory, bool]:
