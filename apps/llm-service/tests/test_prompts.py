@@ -261,3 +261,13 @@ def test_a_digest_replaces_the_page_text_but_keeps_the_sources() -> None:
     assert "Needs a free hand [1]." in content
     assert "[1] Grapple (источник: Player Core)" in content
     assert "FULL PAGE TEXT" not in content
+
+
+def test_an_empty_context_forbids_answering_rules_from_memory() -> None:
+    """Measured: told only "(контекст не найден)", the model wrote Sickened
+    out from memory, wrongly. The sheet's numbers stay usable — a question
+    about the character needs no rulebook page."""
+    content = _question(build_ask_messages("Что делает Sickened?", []))
+
+    assert "по памяти" in content
+    assert "лист" in content

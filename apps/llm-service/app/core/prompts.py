@@ -80,6 +80,16 @@ WEAK_RETRIEVAL_NOTICE = (
 )
 
 
+#: A bare "(контекст не найден)" was not enough: measured on "Что делает
+#: состояние Sickened" with selection on, the model met an empty context and
+#: wrote the condition out from memory — wrongly. An irrelevant page in the
+#: context had, by accident, been what kept it honest.
+NO_CONTEXT_NOTICE = (
+    "(контекст не найден: в книгах правил ничего подходящего по этому вопросу "
+    "нет. Не отвечай про правила по памяти — прямо скажи, что в правилах "
+    "ответа не нашлось. Числа из листа персонажа, если он дан, брать можно.)"
+)
+
 SELECT_INSTRUCTIONS = (
     "Ты отбираешь фрагменты книг правил Pathfinder 2e для ответа на вопрос "
     "игрока. Ниже вопрос и пронумерованные фрагменты. Вызови инструмент и "
@@ -116,7 +126,7 @@ def _context_block(
     retrieved: list[dict[str, Any]], weak: bool = False, digest: str | None = None
 ) -> str:
     if not retrieved:
-        return "(контекст не найден)"
+        return NO_CONTEXT_NOTICE
     notice = WEAK_RETRIEVAL_NOTICE if weak else ""
     if digest:
         return (
