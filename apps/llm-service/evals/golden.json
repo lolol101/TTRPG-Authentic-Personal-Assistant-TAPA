@@ -2,6 +2,33 @@
   "description": "Golden Q&A для /ask. Растёт вместе с найденными ошибками — см. .claude/rules/ml-system-design.md. Проверяем свойства ответа, а не точный текст: формулировки модели меняются, а требования к ним нет.",
   "cases": [
     {
+      "name": "starting_wealth_read_from_the_table",
+      "question": "Сколько денег у персонажа на старте?",
+      "comment": "Из журнальной страницы GM Screen — Treasure (индексируется с 2026-10-01). Пока ячейки таблицы склеивались («1-15 gp15 gp»), модель отвечала 15 + 15 = 30 gp. На 1-м уровне — 15 gp.",
+      "expect": {
+        "any_of": ["15 gp", "15 зм", "15 золот"],
+        "none_of": ["30 gp", "30 зм", "30 золот"],
+        "sources_non_empty": true
+      }
+    },
+    {
+      "name": "party_treasure_from_the_gm_screen",
+      "question": "Сколько сокровищ получает группа 3-го уровня?",
+      "expect": {
+        "any_of": ["500"],
+        "sources_non_empty": true
+      }
+    },
+    {
+      "name": "domain_from_the_journals",
+      "question": "Что даёт домен огня жрецу?",
+      "comment": "Страница Domains — Fire Domain: до 2026-10-01 журналы не индексировались, а без заголовка в тексте не находились.",
+      "expect": {
+        "any_of": ["Fire Ray", "Flame Barrier"],
+        "sources_non_empty": true
+      }
+    },
+    {
       "name": "grounded_known_action",
       "question": "Что делает действие Захват?",
       "expect": {
