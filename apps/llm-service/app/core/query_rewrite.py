@@ -28,6 +28,14 @@ queries cost an embedding and a search each, not another completion: the one
 call this module already makes on every question now answers with all of
 them at once.
 
+The same call also restates the question so it reads without the dialogue.
+Searching a follow-up used to mean gluing the previous question in front of
+it — right for "А если он в тяжёлой броне?", wrong the moment the topic
+changes: replayed live, "Что я могу купить на своём уровне?" after a talk
+about slowing spells was searched as both, found Slow and Stagnate Time, and
+was answered 3 times of 3 as a question about buying spells. The model that
+already reads the question decides which it is, at no extra call.
+
 The rewrite is strictly optional. A model that declines, fails or answers
 with nonsense leaves the request on exactly the retrieval it had before.
 """
@@ -35,65 +43,102 @@ with nonsense leaves the request on exactly the retrieval it had before.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 
 from app.core.config import settings
+from app.core.history import Turn
 from app.core.llm_provider import Completion, complete
-from app.core.tools import REWRITE_SEARCH_QUERY, SEARCH_QUERY_TOOL, parse_search_queries
+from app.core.tools import (
+    REWRITE_SEARCH_QUERY,
+    SEARCH_QUERY_TOOL,
+    parse_search_queries,
+    parse_standalone_question,
+)
 
 _log = logging.getLogger(__name__)
 
 _REWRITE_INSTRUCTIONS = (
-    "Ты готовишь поисковые запросы по книгам правил Pathfinder 2e. Книги на "
-    "английском. Тебе дан вопрос игрока. Если он не на английском или "
-    "сформулирован разговорно — вызови инструмент и дай короткие английские "
-    "запросы из терминов правил: как эта вещь называется в книге. Если в "
-    "вопросе названо несколько правил (действие и состояние, заклинание и "
-    "состояние), дай отдельный запрос на каждое: по одному запросу найдётся "
-    "только первое, а про остальные ответ будет выдуман. Не отвечай на сам "
-    "вопрос и не переводи его дословно. Если вопрос уже короткий и "
-    "английский — не вызывай инструмент вообще."
+    "Ты готовишь новый вопрос игрока к поиску по книгам правил Pathfinder 2e. "
+    "Книги на английском. Тебе даны последние сообщения чата и новый вопрос. "
+    "Всегда вызывай инструмент. В standalone_question перепиши новый вопрос "
+    "по-русски так, чтобы он был понятен без переписки: если он ссылается на "
+    "прошлое — подставь, о ком и о чём речь; если он о новом — не добавляй "
+    "прошлую тему. В queries дай короткие английские запросы из терминов "
+    "правил: как эта вещь называется в книге. Если в вопросе названо "
+    "несколько правил (действие и состояние, заклинание и состояние), дай "
+    "отдельный запрос на каждое: по одному запросу найдётся только первое, а "
+    "про остальные ответ будет выдуман. Не отвечай на сам вопрос и не "
+    "переводи его дословно."
 )
 
 
-def _ask_for_rewrite(question: str) -> Completion:
+@dataclass(frozen=True)
+class Rewrite:
+    """The question prepared for search.
+
+    standalone is None when the model gave nothing usable: the caller then
+    falls back to the old glued search rather than guessing.
+    """
+
+    standalone: str | None = None
+    queries: list[str] = field(default_factory=list)
+
+
+def _dialogue(history: list[Turn]) -> str:
+    recent = history[-settings.rewrite_history_messages :] if history else []
+    lines = []
+    for turn in recent:
+        if turn.role == "user":
+            lines.append(f"Игрок: {turn.text}")
+        else:
+            lines.append(f"Ассистент: {turn.text[: settings.rewrite_history_answer_chars]}")
+    return "\n".join(lines)
+
+
+def _ask_for_rewrite(question: str, history: list[Turn]) -> Completion:
+    dialogue = _dialogue(history)
+    content = (
+        f"Последние сообщения:\n{dialogue}\n\nНовый вопрос: {question}"
+        if dialogue
+        else f"Новый вопрос: {question}"
+    )
     return complete(
         [
             {"role": "system", "content": _REWRITE_INSTRUCTIONS},
-            {"role": "user", "content": question},
+            {"role": "user", "content": content},
         ],
         tools=[SEARCH_QUERY_TOOL],
     )
 
 
-def search_queries_for(question: str) -> list[str]:
-    """The rules named in the rulebooks' language, one query each.
+def rewrite_question(question: str, history: list[Turn]) -> Rewrite:
+    """The question restated without the dialogue, and the rules it names.
 
-    Empty means search the question as it was asked and nothing else. Never
-    raises: this runs before every ordinary question, and a rewrite that
-    fails must cost the answer nothing.
+    Never raises: this runs before every ordinary question, and a rewrite
+    that fails must cost the answer nothing.
     """
     try:
-        completion = _ask_for_rewrite(question)
+        completion = _ask_for_rewrite(question, history)
     except Exception as exc:  # noqa: BLE001 — rewriting is strictly optional
         _log.warning(
             "query rewriting unavailable (%s); searching the question as asked",
             type(exc).__name__,
         )
-        return []
+        return Rewrite()
 
     raw = completion.tool_arguments.get(REWRITE_SEARCH_QUERY)
     if not raw:
-        return []
+        return Rewrite()
 
-    asked = question.strip().casefold()
+    standalone = parse_standalone_question(raw)
     # Searching the same string twice costs an embedding and returns the
     # same hits, so a query that restates the question is no rewrite.
-    queries = [query for query in parse_search_queries(raw) if query.casefold() != asked]
+    already = {question.strip().casefold(), (standalone or "").casefold()}
+    queries = [query for query in parse_search_queries(raw) if query.casefold() not in already]
     queries = queries[: settings.retrieval_max_search_queries]
 
-    if queries:
-        _log.info("search rewritten: %r -> %s", question, queries)
-    return queries
+    _log.info("question rewritten: %r -> %r %s", question, standalone, queries)
+    return Rewrite(standalone=standalone, queries=queries)
 
 
-__all__ = ["search_queries_for"]
+__all__ = ["Rewrite", "rewrite_question"]

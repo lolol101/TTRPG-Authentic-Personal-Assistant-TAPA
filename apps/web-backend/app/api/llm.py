@@ -227,6 +227,9 @@ def _open_conversation(payload: AskRequest, current_user: User, session: Session
 def _request_body(payload: AskRequest, conversation: _Conversation) -> dict:
     body = payload.model_dump(exclude={"character_id", "chat_id"})
     body["character_context"] = conversation.character_context
+    # Apart from the rendered sheet: llm-service compares it against what a
+    # found spell or item requires, in code, so the model never has to.
+    body["character_level"] = conversation.character.level if conversation.character else None
     body["allow_sheet_edits"] = conversation.character is not None
     # A character settles which rules apply; asking Pathfinder questions of a
     # D&D sheet is a mistake the app should not be able to make.
