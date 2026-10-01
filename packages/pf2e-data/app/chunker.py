@@ -33,6 +33,7 @@ def chunk_page(
             traits=list(page.traits),
             language=language,
             text=part,
+            license=page.license,
         )
         for index, part in enumerate(parts)
     ]

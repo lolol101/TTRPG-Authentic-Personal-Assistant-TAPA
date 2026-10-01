@@ -23,6 +23,10 @@ class ParsedPage:
     traits: list[str]
     body: str
     fetched_at: str
+    # Where the text's openness comes from: the stamp a source put on it
+    # ("ORC", "OGL"), "unstamped" for text indexed without one, empty where
+    # the source has no such notion (the pf2.ru crawl).
+    license: str = ""
 
 
 @dataclass
@@ -37,3 +41,4 @@ class Chunk:
     traits: list[str] = field(default_factory=list)
     language: str = "ru"
     text: str = ""
+    license: str = ""

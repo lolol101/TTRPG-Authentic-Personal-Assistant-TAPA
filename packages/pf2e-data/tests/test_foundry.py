@@ -202,6 +202,7 @@ def test_a_licensed_remastered_entry_is_kept() -> None:
     assert page.category == "spells"
     assert page.source_book == "Pathfinder Player Core"
     assert page.traits == ["fire", "concentrate"]
+    assert page.license == "ORC"
 
 
 @pytest.mark.parametrize("licence", ["", None, "Paizo", "proprietary"])
@@ -751,11 +752,20 @@ def test_a_page_repeating_the_entry_name_is_not_titled_twice() -> None:
     assert _pages_of(entry)[0].title == "Running the Game"
 
 
-def test_an_unstamped_page_stays_out() -> None:
-    """Silence is not a licence: unstamped prose must not reach the index."""
+def test_an_unstamped_page_is_indexed_and_says_so() -> None:
+    """Decided 2026-10-01 (DECISIONS.md): none of the 483 journal pages in
+    the packs carries a stamp, and the project indexes them anyway. Where
+    the text came from stays visible as metadata, not as a guess."""
     entry = _journal(pages=[{"name": "Somewhere", "text": {"content": _PROSE}}])
 
-    assert _pages_of(entry) == []
+    pages = _pages_of(entry)
+
+    assert [page.title for page in pages] == ["Running the Game — Somewhere"]
+    assert pages[0].license == "unstamped"
+
+
+def test_a_stamped_page_carries_its_licence() -> None:
+    assert _pages_of(_journal())[0].license == "ORC"
 
 
 def test_a_page_inherits_the_licence_of_its_entry() -> None:

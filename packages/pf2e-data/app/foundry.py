@@ -467,6 +467,10 @@ def _publication_of(holder: object) -> dict:
     return publication if isinstance(publication, dict) else {}
 
 
+#: The licence recorded for a journal page that carries no stamp at all.
+_UNSTAMPED = "unstamped"
+
+
 def _is_indexable(publication: dict) -> bool:
     """Open and remastered — the two things the corpus promises about itself.
 
@@ -488,9 +492,11 @@ def journal_to_pages(
     nothing that reads like a book.
 
     Licence and remaster are taken from the page, falling back to the entry.
-    A page stamped with neither stays out: an unstamped page is not evidence
-    that the text is open, and this corpus is worth exactly what that
-    guarantee is worth.
+    A page stamped closed or pre-remaster stays out. A page stamped with
+    nothing goes in, marked "unstamped": none of the 483 journal pages in the
+    packs carries a stamp, and the project decided to index them anyway
+    (DECISIONS.md, 2026-10-01) — so the gap is recorded on every chunk
+    instead of decided silently in code.
     """
     if not isinstance(entry, dict):
         return []
@@ -507,8 +513,9 @@ def journal_to_pages(
             continue
 
         publication = _publication_of(page) or entry_publication
-        if not _is_indexable(publication):
+        if publication and not _is_indexable(publication):
             continue
+        license = str(publication.get("license") or "") if publication else _UNSTAMPED
 
         text = page.get("text")
         content = text.get("content") if isinstance(text, dict) else None
@@ -531,6 +538,7 @@ def journal_to_pages(
                 traits=[],
                 body=body,
                 fetched_at="",
+                license=license,
             )
         )
     return parsed
@@ -567,6 +575,7 @@ def entry_to_page(
         traits=[str(t) for t in (_value_of(system, "traits") or [])],
         body="\n\n".join(parts),
         fetched_at="",
+        license=str(publication.get("license") or ""),
     )
 
 

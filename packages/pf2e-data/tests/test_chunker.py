@@ -53,3 +53,14 @@ def test_chunk_ids_are_stable_and_suffixed_when_split() -> None:
     assert len(multi) > 1
     base = multi[0].id.rsplit("-", 1)[0]
     assert [c.id for c in multi] == [f"{base}-{i}" for i in range(len(multi))]
+
+
+def test_the_licence_rides_along_into_every_chunk() -> None:
+    """Where a chunk's text came from is metadata the index can filter on —
+    an unstamped journal page must stay recognisable as one."""
+    page = _page("Первый абзац.\n\n" + "x" * 300)
+    page.license = "unstamped"
+
+    chunks = chunk_page(page, max_chars=100)
+
+    assert {chunk.license for chunk in chunks} == {"unstamped"}

@@ -30,6 +30,9 @@ def to_metadata(record: dict[str, Any]) -> dict[str, Any]:
         # Which game system this rule belongs to. Retrieval filters on it so
         # a D&D question never answers out of the Pathfinder books.
         "ruleset": record.get("ruleset") or "pf2e",
+        # "ORC"/"OGL" as stamped by the source, "unstamped" for journal pages
+        # indexed without a stamp, empty for chunks built before the field.
+        "license": record.get("license") or "",
     }
 
 
