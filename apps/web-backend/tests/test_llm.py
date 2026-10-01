@@ -618,3 +618,33 @@ def test_ask_defaults_weak_to_false_when_llm_service_omits_it(client, monkeypatc
     response = client.post("/llm/ask", json={"question": "Что делает Удар?"}, headers=headers)
 
     assert response.json()["weak"] is False
+
+
+def test_a_change_that_changes_nothing_is_not_proposed(client, monkeypatch) -> None:
+    """Live sheet build: a good part of forty rows read "10 → 10" or
+    "Wizard → Wizard", burying the real changes the player had to confirm."""
+    headers = _auth_headers(client)
+    character_id = client.post(
+        "/characters", json={"name": "Рэм", "level": 1, "class_name": "Wizard"}, headers=headers
+    ).json()["id"]
+    _stub_ask_sequence(
+        monkeypatch,
+        [
+            {
+                "answer": "Собрал.",
+                "sources": [],
+                "proposed_changes": [
+                    {"path": "level", "value": 1},
+                    {"path": "class_name", "value": "Wizard"},
+                    {"path": "hp_current", "value": 10},
+                ],
+            }
+        ],
+    )
+
+    body = client.post(
+        "/llm/ask", json={"question": "Собери", "character_id": character_id}, headers=headers
+    ).json()
+
+    assert [change["path"] for change in body["proposed_changes"]] == ["hp_current"]
+    assert body["rejected_changes"] == []

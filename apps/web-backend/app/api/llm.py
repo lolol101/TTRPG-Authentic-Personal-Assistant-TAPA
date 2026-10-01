@@ -75,6 +75,9 @@ def _check_proposals(
             "section": change.section,
         }
         for change in resolved
+        # Not a proposal, just noise: a live sheet build listed "10 → 10" and
+        # "Wizard → Wizard" among the forty rows the player had to read.
+        if change.value != change.before
     ], rejected
 
 
