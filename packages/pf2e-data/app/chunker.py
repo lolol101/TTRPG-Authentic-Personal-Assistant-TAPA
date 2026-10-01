@@ -21,6 +21,15 @@ def chunk_page(
     max_chars = max_chars or settings.max_chunk_chars
     parts = _split_on_paragraphs(page.body, max_chars) or [page.body]
 
+    # Measured 2026-10-01: a continuation chunk carried no word of what page
+    # it came from, and "fire domain cleric" never found the Fire Domain
+    # page. Each one after the first now opens with the title, and the body
+    # is split with room left for it so no chunk outgrows max_chars.
+    heading = f"{page.title}\n\n" if page.title else ""
+    if len(parts) > 1 and heading and len(heading) < max_chars // 2:
+        parts = _split_on_paragraphs(page.body, max_chars - len(heading)) or [page.body]
+        parts = parts[:1] + [heading + part for part in parts[1:]]
+
     base_id = hashlib.sha256(page.url.encode("utf-8")).hexdigest()[:16]
     single = len(parts) == 1
     return [

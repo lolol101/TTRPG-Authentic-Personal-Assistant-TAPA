@@ -528,6 +528,9 @@ def journal_to_pages(
         # halves in a title only cost the embedding room to say less.
         names = [name for name in (entry_name, page_name) if name]
         title = " — ".join(dict.fromkeys(names))
+        # Items open with their name and stat line (see _header); journal
+        # prose did not, and its embedding never learned what it was about.
+        body = f"{title}\n\n{body}" if title else body
 
         # One file holds every page of a journal, and chunk ids are a hash of
         # the url: without an anchor, 1077 journal chunks collapsed into 37

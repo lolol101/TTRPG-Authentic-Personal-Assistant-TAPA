@@ -850,3 +850,9 @@ def test_every_page_of_one_journal_gets_its_own_chunk_ids() -> None:
     assert len(set(page.url for page in pages)) == 2
     assert len(set(ids)) == len(ids)
     assert pages[0].url.endswith("journals/one.json#p1")
+
+
+def test_a_journal_page_opens_with_its_title() -> None:
+    """Items open with their name and stat line; journal prose did not, and
+    an embedding of the bare text did not know it was "Terrain and Cover"."""
+    assert _pages_of(_journal())[0].body.startswith("Running the Game — Difficulty Classes")
