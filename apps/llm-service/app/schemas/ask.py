@@ -17,6 +17,9 @@ class AskRequest(BaseModel):
     ruleset: str | None = None
     """Pre-rendered sheet from web-backend; already stripped of user PII."""
     character_context: str | None = None
+    """The same character's level as a number, so what a found page requires
+    can be compared against it in code — see app.rulesets."""
+    character_level: int | None = None
     """Offer the sheet-editing tool. Only meaningful with a character."""
     allow_sheet_edits: bool = False
     """Earlier turns of this chat. Trimmed here to fit the model's window."""

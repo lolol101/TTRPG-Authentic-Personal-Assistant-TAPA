@@ -1,27 +1,48 @@
 from typing import Any
 
 from app.core.history import Turn
+from app.rulesets import availability_note
 
+#: Replayed live chat, 2026-10-01: given one found page (Slow), the model
+#: listed Magic Missile, Color Spray and Sleep "по стандартным правилам" —
+#: Color Spray is not even in Remaster — and worked out "Slow from level 3".
+#: "Answer only from the context" did not stop it: it read the found page as
+#: the answer's source and its own memory as fair supplement. So the rule is
+#: stated per claim — every name, number and level — and the supplement is
+#: named for what it is.
 ASK_SYSTEM_INSTRUCTIONS = (
     "Ты — помощник по правилам Pathfinder 2e (только открытый ORC-контент из "
-    "официальных паков foundryvtt/pf2e, на английском). Отвечай ТОЛЬКО на "
-    "основе приведённого ниже контекста. Если в контексте нет ответа на "
-    "вопрос — прямо скажи об этом, не выдумывай правила. Отвечай на русском, "
-    "кратко и по делу."
+    "официальных паков foundryvtt/pf2e, на английском). Отвечай на русском, "
+    "кратко и по делу.\n\n"
+    "К вопросу приложены страницы книг правил, найденные поиском. Каждое "
+    "правило, число, уровень и название (заклинания, черты, предмета, "
+    "действия), которое ты называешь, должно стоять на этих страницах. Чего на "
+    "них нет — не называй и не вычисляй, даже если уверен и даже с оговоркой "
+    "«обычно» или «по стандартным правилам»: так твоя память выдаёт себя за "
+    "книгу. Если найденного не хватает для полного ответа — ответь тем, что "
+    "есть, и прямо скажи, чего в найденных правилах нет.\n\n"
+    "Страницы нашёл поиск, а не прислал игрок: не пиши «как вы привели» или "
+    "«в вашем запросе». Игрок не видит ни страниц, ни слова «контекст» — "
+    "говори «в книгах правил» или «в найденных правилах».\n\n"
+    "Пометки в квадратных скобках после названия страницы — на каком уровне "
+    "персонажа открывается круг заклинания, черта или предмет и открыт ли он "
+    "уже — посчитаны программой. Бери эти уровни из пометок как есть и сам их "
+    "не вычисляй."
 )
 
 CHARACTER_INSTRUCTIONS = (
     "Ниже дан лист персонажа игрока. Модификаторы в нём уже посчитаны — бери "
     "их как есть и не пересчитывай. Если вопрос касается этого персонажа, "
     "опирайся на его числа. Лист персонажа не является источником правил: "
-    "сами правила бери только из контекста ниже."
+    "сами правила бери только из найденных правил при вопросе."
 )
 
 
 HISTORY_INSTRUCTIONS = (
     "Перед последним вопросом идут предыдущие сообщения этого чата. Они нужны "
     "только чтобы понимать, о чём спрашивает игрок: твои прошлые ответы не "
-    "являются источником правил. Правила бери из контекста при последнем вопросе."
+    "являются источником правил. Правила бери из найденных правил при "
+    "последнем вопросе."
 )
 
 
@@ -80,15 +101,89 @@ WEAK_RETRIEVAL_NOTICE = (
 )
 
 
-def _context_block(retrieved: list[dict[str, Any]], weak: bool = False) -> str:
-    if not retrieved:
-        return "(контекст не найден)"
-    notice = WEAK_RETRIEVAL_NOTICE if weak else ""
-    return notice + "\n\n".join(
-        f"[{i + 1}] {r['metadata']['title']} "
-        f"(источник: {r['metadata'].get('source_book') or 'неизвестен'}):\n{r['text']}"
+#: A bare "(контекст не найден)" was not enough: measured on "Что делает
+#: состояние Sickened" with selection on, the model met an empty context and
+#: wrote the condition out from memory — wrongly. An irrelevant page in the
+#: context had, by accident, been what kept it honest.
+NO_CONTEXT_NOTICE = (
+    "(в книгах правил ничего подходящего по этому вопросу не нашлось. Не "
+    "отвечай про правила по памяти — прямо скажи, что в правилах ответа не "
+    "нашлось. Числа из листа персонажа, если он дан, брать можно.)"
+)
+
+#: Measured live with a single "keep what answers по существу" list: "Что
+#: делает действие Толчок?" went from five pages to one, and the player lost
+#: Shoving Sweep and Brutish Shove — related feats worth seeing next to the
+#: answer. So the selector sorts into main and related and drops only what
+#: is neither.
+SELECT_INSTRUCTIONS = (
+    "Ты отбираешь фрагменты книг правил Pathfinder 2e для ответа на вопрос "
+    "игрока. Ниже вопрос и пронумерованные фрагменты. Вызови инструмент и "
+    "разложи номера фрагментов на две группы. main — фрагменты о том самом "
+    "правиле, действии, состоянии, предмете или заклинании, о котором "
+    "спрашивают, и то, без чего ответ будет неполным. related — фрагменты на "
+    "ту же тему, которые игроку полезно увидеть рядом с ответом: варианты и "
+    "черты с этим действием, связанные состояния, похожие заклинания. "
+    "Фрагменты, совпавшие только по слову или говорящие о другом, не клади "
+    "никуда — они будут отброшены. Если не подходит ни один — вызови "
+    "инструмент с пустыми списками. На сам вопрос не отвечай."
+)
+
+DIGEST_INSTRUCTIONS = (
+    "Ты готовишь выжимку из книг правил Pathfinder 2e для ответа на вопрос "
+    "игрока. Ниже вопрос и пронумерованные фрагменты. Вызови инструмент: в "
+    "extract перенеси из подходящих фрагментов всё, что нужно для ответа — "
+    "условия, ограничения, числа — по-английски и словами книги, без "
+    "собственных выводов и без того, чего во фрагментах нет. После каждого "
+    "утверждения ставь номер фрагмента в квадратных скобках. В used перечисли "
+    "номера фрагментов, на которые опирается выжимка. Если не подходит ни один "
+    "фрагмент — передай пустые extract и used. На сам вопрос не отвечай."
+)
+
+
+def _fragment_head(index: int, chunk: dict[str, Any], character_level: int | None) -> str:
+    head = (
+        f"[{index + 1}] {chunk['metadata']['title']} "
+        f"(источник: {chunk['metadata'].get('source_book') or 'неизвестен'})"
+    )
+    note = availability_note(chunk, character_level)
+    return f"{head} [{note}]" if note else head
+
+
+def _fragments(
+    retrieved: list[dict[str, Any]], with_text: bool = True, character_level: int | None = None
+) -> str:
+    return "\n\n".join(
+        _fragment_head(i, r, character_level) + (f":\n{r['text']}" if with_text else "")
         for i, r in enumerate(retrieved)
     )
+
+
+def _context_block(
+    retrieved: list[dict[str, Any]],
+    weak: bool = False,
+    digest: str | None = None,
+    character_level: int | None = None,
+) -> str:
+    if not retrieved:
+        return NO_CONTEXT_NOTICE
+    notice = WEAK_RETRIEVAL_NOTICE if weak else ""
+    if digest:
+        return (
+            f"{notice}Выжимка из найденных правил (номера в скобках — источники ниже):\n"
+            f"{digest}\n\nИсточники:\n{_fragments(retrieved, False, character_level)}"
+        )
+    return notice + _fragments(retrieved, character_level=character_level)
+
+
+def build_narrowing_messages(
+    instructions: str, question: str, retrieved: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """The selection or digest call: the question and every fragment, numbered."""
+    return [
+        {"role": "system", "content": instructions},
+        {"role": "user", "content": f"Вопрос: {question}\n\nФрагменты:\n{_fragments(retrieved)}"},
+    ]
 
 
 def build_system_prompt(
@@ -114,6 +209,8 @@ def build_ask_messages(
     history: list[Turn] | None = None,
     retry_feedback: str | None = None,
     weak: bool = False,
+    digest: str | None = None,
+    character_level: int | None = None,
 ) -> list[dict[str, Any]]:
     """Instructions, then the remembered turns, then this question.
 
@@ -141,10 +238,8 @@ def build_ask_messages(
         messages.append({"role": "user", "content": retry_feedback})
         return messages
 
+    rules = _context_block(retrieved, weak, digest, character_level)
     messages.append(
-        {
-            "role": "user",
-            "content": f"Контекст:\n{_context_block(retrieved, weak)}\n\nВопрос: {question}",
-        }
+        {"role": "user", "content": f"Найденные правила:\n{rules}\n\nВопрос: {question}"}
     )
     return messages

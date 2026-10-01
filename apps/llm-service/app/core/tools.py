@@ -281,6 +281,145 @@ def parse_search_queries(raw_arguments: str) -> list[str]:
     return queries
 
 
+PICK_FRAGMENTS = "pick_relevant_fragments"
+
+PICK_FRAGMENTS_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": PICK_FRAGMENTS,
+        "description": (
+            "Разделить фрагменты правил на главные и связанные с вопросом "
+            "игрока. Фрагмент, не попавший ни в один список, отбрасывается. "
+            "Вызывай всегда; если не подходит ни один — с пустыми списками."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "main": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": (
+                        "Номера фрагментов о том самом, о чём спрашивают, например [1]."
+                    ),
+                },
+                "related": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": (
+                        "Номера фрагментов на ту же тему, полезных игроку рядом "
+                        "с ответом: варианты, черты и заклинания с этим "
+                        "действием, связанные состояния. Например [2, 4]."
+                    ),
+                },
+            },
+            "required": ["main", "related"],
+        },
+    },
+}
+
+
+WRITE_EXTRACT = "write_rules_extract"
+
+WRITE_EXTRACT_TOOL: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": WRITE_EXTRACT,
+        "description": (
+            "Передать выжимку из фрагментов правил, нужную для ответа на "
+            "вопрос игрока. Вызывай всегда; если не подходит ни один "
+            "фрагмент — с пустыми extract и used."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "extract": {
+                    "type": "string",
+                    "description": (
+                        "Всё из фрагментов, что нужно для ответа: условия, "
+                        "ограничения, числа. После каждого утверждения — номер "
+                        "фрагмента в квадратных скобках, например [2]."
+                    ),
+                },
+                "used": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "Номера фрагментов, на которые опирается выжимка.",
+                },
+            },
+            "required": ["extract", "used"],
+        },
+    },
+}
+
+
+def _fragment_numbers(raw: Any, total: int) -> list[int] | None:
+    """1-based numbers within range, deduplicated, in the order retrieved.
+
+    Retrieval order is kept rather than the model's: the English-rewrite
+    hits come first, and the answering model reads the front most closely.
+    """
+    if not isinstance(raw, list):
+        return None
+    numbers: set[int] = set()
+    for item in raw:
+        try:
+            number = int(item)
+        except (TypeError, ValueError):
+            continue
+        if 1 <= number <= total:
+            numbers.add(number)
+    return sorted(numbers)
+
+
+def parse_picked_fragments(raw_arguments: str, total: int) -> tuple[list[int], list[int]] | None:
+    """The main and the related fragments a pick call named; None if unusable.
+
+    Empty lists are a real answer — nothing bears on the question — and are
+    told apart from a call that could not be read, which keeps the request
+    on everything it retrieved. A missing related list reads as none
+    related; a page named in both groups counts as main.
+    """
+    try:
+        parsed = json.loads(raw_arguments)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+
+    main = _fragment_numbers(parsed.get("main"), total)
+    related = _fragment_numbers(parsed.get("related", []), total)
+    if main is None or related is None:
+        return None
+    return main, [number for number in related if number not in main]
+
+
+def parse_extract(raw_arguments: str, total: int) -> tuple[str, list[int]] | None:
+    """The extract and the fragments it rests on; None when unusable.
+
+    An extract with no fragments behind it cannot be cited, and fragments
+    with no extract have nothing to answer from — both are unusable, while
+    both empty means nothing bears on the question.
+    """
+    try:
+        parsed = json.loads(raw_arguments)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+
+    extract = parsed.get("extract")
+    if not isinstance(extract, str):
+        return None
+    used = _fragment_numbers(parsed.get("used"), total)
+    if used is None:
+        return None
+
+    extract = extract.strip()
+    if bool(extract) != bool(used):
+        return None
+    return extract, used
+
+
 PLAN_SHEET_WORK = "plan_sheet_work"
 
 SHEET_PLAN_TOOL: dict[str, Any] = {
