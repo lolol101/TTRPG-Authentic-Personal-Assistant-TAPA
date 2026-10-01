@@ -829,3 +829,24 @@ def test_convert_tree_reads_journals_alongside_items(tmp_path) -> None:
 
     assert counts == {"spells": 1, "journals": 1}
     assert (out / "journals.jsonl").is_file()
+
+
+def test_every_page_of_one_journal_gets_its_own_chunk_ids() -> None:
+    """Measured on the first ingest: all pages of a journal shared the file's
+    url, chunk ids are a hash of the url, and 1077 journal chunks collapsed
+    into 37 on deduplication."""
+    from app.chunker import chunk_page
+
+    entry = _journal(
+        pages=[
+            {"_id": "p1", "name": "Cover", "text": {"content": _PROSE}},
+            {"_id": "p2", "name": "Treasure", "text": {"content": _PROSE}},
+        ]
+    )
+
+    pages = _pages_of(entry)
+    ids = [chunk.id for page in pages for chunk in chunk_page(page)]
+
+    assert len(set(page.url for page in pages)) == 2
+    assert len(set(ids)) == len(ids)
+    assert pages[0].url.endswith("journals/one.json#p1")

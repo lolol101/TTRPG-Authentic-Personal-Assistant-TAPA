@@ -529,9 +529,13 @@ def journal_to_pages(
         names = [name for name in (entry_name, page_name) if name]
         title = " — ".join(dict.fromkeys(names))
 
+        # One file holds every page of a journal, and chunk ids are a hash of
+        # the url: without an anchor, 1077 journal chunks collapsed into 37
+        # on the first ingest. The link still opens the file.
+        anchor = str(page.get("_id") or page_name or len(parsed))
         parsed.append(
             ParsedPage(
-                url=f"{_SOURCE_REPO}/blob/{ref}/packs/pf2e/{relative_path}",
+                url=f"{_SOURCE_REPO}/blob/{ref}/packs/pf2e/{relative_path}#{anchor}",
                 category=pack,
                 title=title,
                 source_book=publication.get("title") or None,
