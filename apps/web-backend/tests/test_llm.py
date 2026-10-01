@@ -359,6 +359,132 @@ def test_a_rejected_path_gets_one_retry_with_what_the_checker_found(client, monk
     assert retry_request["history"][-1] == {"role": "assistant", "text": "Собрал."}
 
 
+def test_the_retry_sends_only_corrections_and_keeps_what_was_accepted(client, monkeypatch) -> None:
+    """Live sheet build: 34 of 40 proposals passed and 6 were refused. Asked
+    to resend the whole list, a retry that dropped anything was discarded
+    and the six stayed refused. Now the accepted part is kept and only the
+    corrections come back."""
+    headers = _auth_headers(client)
+    character_id = client.post("/characters", json={"name": "Рэм"}, headers=headers).json()["id"]
+    calls = _stub_ask_sequence(
+        monkeypatch,
+        [
+            {
+                "answer": "Собрал.",
+                "sources": [],
+                "proposed_changes": [
+                    {"path": "hp_current", "value": 10},
+                    {"path": "sheet_data.stats.int.rank", "value": "trained"},
+                ],
+            },
+            {
+                "answer": "",
+                "sources": [],
+                "proposed_changes": [{"path": "sheet_data.ability_scores.int", "value": 16}],
+            },
+        ],
+    )
+
+    body = client.post(
+        "/llm/ask",
+        json={"question": "Собери персонажа", "character_id": character_id},
+        headers=headers,
+    ).json()
+
+    assert [change["path"] for change in body["proposed_changes"]] == [
+        "hp_current",
+        "sheet_data.ability_scores.int",
+    ]
+    assert body["rejected_changes"] == []
+
+    feedback = calls[1]["retry_feedback"]
+    assert "только исправлен" in feedback
+    assert "hp_current" in feedback
+    assert "значение пишется в sheet_data.ability_scores.int" in feedback
+
+
+def test_a_correction_still_refused_gets_a_second_try(client, monkeypatch) -> None:
+    headers = _auth_headers(client)
+    character_id = client.post("/characters", json={"name": "Рэм"}, headers=headers).json()["id"]
+    calls = _stub_ask_sequence(
+        monkeypatch,
+        [
+            {
+                "answer": "Собрал.",
+                "sources": [],
+                "proposed_changes": [
+                    {"path": "hp_current", "value": 10},
+                    {"path": "sheet_data.made_up_field", "value": 1},
+                ],
+            },
+            {
+                "answer": "",
+                "sources": [],
+                "proposed_changes": [{"path": "sheet_data.x", "value": 1}],
+            },
+            {
+                "answer": "",
+                "sources": [],
+                "proposed_changes": [{"path": "ancestry", "value": "Эльф"}],
+            },
+        ],
+    )
+
+    body = client.post(
+        "/llm/ask",
+        json={"question": "Собери персонажа", "character_id": character_id},
+        headers=headers,
+    ).json()
+
+    assert len(calls) == 3
+    assert [change["path"] for change in body["proposed_changes"]] == ["hp_current", "ancestry"]
+    assert body["rejected_changes"] == []
+
+
+def test_the_number_of_corrections_is_capped(client, monkeypatch) -> None:
+    headers = _auth_headers(client)
+    character_id = client.post("/characters", json={"name": "Рэм"}, headers=headers).json()["id"]
+    monkeypatch.setattr(llm.settings, "sheet_edit_retry_attempts", 1)
+    calls = _stub_ask_sequence(
+        monkeypatch,
+        [{"answer": "ок", "sources": [], "proposed_changes": [{"path": "owner_id", "value": 2}]}],
+    )
+
+    client.post(
+        "/llm/ask", json={"question": "вопрос", "character_id": character_id}, headers=headers
+    )
+
+    assert len(calls) == 2
+
+
+def test_a_retry_that_proposes_nothing_leaves_the_refusals_visible(client, monkeypatch) -> None:
+    """Silence is not a fix: the player still has to see what was refused."""
+    headers = _auth_headers(client)
+    character_id = client.post("/characters", json={"name": "Рэм"}, headers=headers).json()["id"]
+    calls = _stub_ask_sequence(
+        monkeypatch,
+        [
+            {
+                "answer": "Собрал.",
+                "sources": [],
+                "proposed_changes": [
+                    {"path": "hp_current", "value": 10},
+                    {"path": "owner_id", "value": 2},
+                ],
+            },
+            {"answer": "Не знаю, как исправить.", "sources": [], "proposed_changes": []},
+        ],
+    )
+
+    body = client.post(
+        "/llm/ask", json={"question": "вопрос", "character_id": character_id}, headers=headers
+    ).json()
+
+    assert len(calls) == 2
+    assert [change["path"] for change in body["proposed_changes"]] == ["hp_current"]
+    assert len(body["rejected_changes"]) == 1
+
+
 def test_no_rejection_means_no_retry_call_at_all(client, monkeypatch) -> None:
     """The whole point: when the checker has nothing to report, there is
     nothing for the model to read, so no second call is made."""
