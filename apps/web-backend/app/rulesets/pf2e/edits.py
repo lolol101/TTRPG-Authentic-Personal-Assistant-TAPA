@@ -55,6 +55,10 @@ SHEET_TEXT_FIELDS: dict[str, str] = {
     "notes": "Заметки",
 }
 
+#: Of the fields above, the ones the player writes rather than the rules
+#: decide: the assistant may add to them but not replace them.
+_PLAYERS_PROSE_FIELDS = {"notes", "speed_notes", "saves_notes"}
+
 #: sheet_data.<group>.<key> — the prose sections of the printed sheet.
 SHEET_TEXT_GROUPS: dict[str, tuple[str, dict[str, str]]] = {
     "bio": (
@@ -470,18 +474,36 @@ def _resolve_text_column(character: Character, change: ProposedChange) -> Resolv
     )
 
 
+def _squashed(text: str) -> str:
+    return " ".join(text.split())
+
+
 def _resolve_sheet_text(
-    character: Character, change: ProposedChange, keys: list[str], label: str
+    character: Character,
+    change: ProposedChange,
+    keys: list[str],
+    label: str,
+    players_prose: bool = False,
 ) -> ResolvedChange:
     current: Any = character.sheet_data or {}
     for key in keys:
         current = current.get(key) if isinstance(current, dict) else None
+    before = current or ""
+    value = _as_text(change.value, label)
+    # Live sheet build, 2026-10-01: the player's backstory in the notes was
+    # replaced by a summary of the build, one confirmation among forty. What
+    # the player wrote may be added to, never dropped.
+    if players_prose and before.strip() and _squashed(before) not in _squashed(value):
+        raise ChangeRejected(
+            f"{label}: здесь уже есть текст игрока, его нельзя заменить, только "
+            "дополнить — пришли прежний текст целиком и добавь своё после него"
+        )
     return ResolvedChange(
         path=change.path,
-        value=_as_text(change.value, label),
+        value=value,
         reason=change.reason,
         label=label,
-        before=current or "",
+        before=before,
         section=section_for(change.path),
     )
 
@@ -600,14 +622,25 @@ def _resolve_sheet(character: Character, change: ProposedChange) -> ResolvedChan
         )
 
     if len(parts) == 2 and parts[1] in SHEET_TEXT_FIELDS:
-        return _resolve_sheet_text(character, change, [parts[1]], SHEET_TEXT_FIELDS[parts[1]])
+        return _resolve_sheet_text(
+            character,
+            change,
+            [parts[1]],
+            SHEET_TEXT_FIELDS[parts[1]],
+            players_prose=parts[1] in _PLAYERS_PROSE_FIELDS,
+        )
 
     if len(parts) == 3 and parts[1] in SHEET_TEXT_GROUPS:
         group_label, keys = SHEET_TEXT_GROUPS[parts[1]]
         if parts[2] not in keys:
             raise ChangeRejected(f"{group_label}: неизвестное поле «{parts[2]}»")
+        # Biography, personality, campaign: all of it is the player's writing.
         return _resolve_sheet_text(
-            character, change, [parts[1], parts[2]], f"{group_label}: {keys[parts[2]]}"
+            character,
+            change,
+            [parts[1], parts[2]],
+            f"{group_label}: {keys[parts[2]]}",
+            players_prose=True,
         )
 
     key = ".".join(parts[1:])

@@ -766,3 +766,53 @@ def test_a_skill_or_save_under_the_wrong_folder_is_shown_the_stats_form(path, st
     _, rejected = resolve_changes(_character(), [ProposedChange(path, "trained")])
 
     assert f"sheet_data.stats.{stat}.<rank|item|temporary>" in rejected[0]
+
+
+_BACKSTORY = "Кастус — эльфийский волшебник, посвятивший жизнь изучению магии."
+
+
+def test_the_players_notes_cannot_be_replaced() -> None:
+    """Live sheet build, 2026-10-01: the player's backstory in the notes was
+    replaced by a summary of the build. Written by the player, it is not the
+    assistant's to throw away."""
+    with pytest.raises(ChangeRejected, match="только дополнить"):
+        resolve_change(
+            _character(sheet_data={"notes": _BACKSTORY}),
+            ProposedChange("sheet_data.notes", "Сборка: школа Protean Form."),
+        )
+
+
+def test_the_players_notes_can_be_added_to() -> None:
+    resolved = resolve_change(
+        _character(sheet_data={"notes": _BACKSTORY}),
+        ProposedChange("sheet_data.notes", f"{_BACKSTORY}\n\nСборка: школа Protean Form."),
+    )
+
+    assert resolved.value.startswith(_BACKSTORY)
+
+
+def test_empty_notes_are_free_to_fill() -> None:
+    resolved = resolve_change(
+        _character(sheet_data={"notes": "  "}), ProposedChange("sheet_data.notes", "Сборка.")
+    )
+
+    assert resolved.value == "Сборка."
+
+
+def test_the_players_prose_sections_are_protected_too() -> None:
+    with pytest.raises(ChangeRejected, match="только дополнить"):
+        resolve_change(
+            _character(sheet_data={"bio": {"appearance": "Высокий, седой."}}),
+            ProposedChange("sheet_data.bio.appearance", "Низкий."),
+        )
+
+
+def test_mechanical_text_fields_are_still_replaced_outright() -> None:
+    """A new ancestry means new languages; that is a rule, not the player's
+    writing, and appending to it would leave the old ones standing."""
+    resolved = resolve_change(
+        _character(sheet_data={"languages": "Всеобщий, Эльфийский"}),
+        ProposedChange("sheet_data.languages", "Common"),
+    )
+
+    assert resolved.value == "Common"
