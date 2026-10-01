@@ -59,7 +59,7 @@ def retrieve(
 def is_weak(retrieved: list[dict[str, Any]]) -> bool:
     """Whether nothing retrieved is a confident match for the question.
 
-    Empty context already reads as "(контекст не найден)" in the prompt —
+    Empty context already reads as "nothing found" in the prompt —
     this catches the quieter failure: *k* chunks came back, because Chroma
     always returns its *k* nearest regardless of how far they are, and nudged
     into a plausible-sounding answer whose citation does not actually say it.
