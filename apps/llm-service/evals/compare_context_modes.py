@@ -47,7 +47,12 @@ class Run:
 
 def _run(case: dict, mode: str) -> Run:
     settings.context_mode = mode
-    payload = AskRequest(question=case["question"], character_context=case.get("character_context"))
+    payload = AskRequest(
+        question=case["question"],
+        character_context=case.get("character_context"),
+        character_level=case.get("character_level"),
+        history=case.get("history", []),
+    )
 
     started = time.monotonic()
     retrieved, messages, _, _ = _prepare(payload)

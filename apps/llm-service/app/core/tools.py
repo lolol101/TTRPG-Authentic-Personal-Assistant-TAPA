@@ -213,20 +213,30 @@ SEARCH_QUERY_TOOL: dict[str, Any] = {
     "function": {
         "name": REWRITE_SEARCH_QUERY,
         "description": (
-            "Дать английские поисковые запросы по книге правил для вопроса "
-            "игрока. Книги правил на английском, поэтому русский вопрос "
-            "находит нужную страницу заметно хуже. Вызывай, если вопрос не "
-            "на английском или сформулирован разговорно. Если вопрос уже "
-            "короткий и английский — не вызывай инструмент вовсе."
+            "Подготовить новый вопрос игрока к поиску: переписать его так, "
+            "чтобы он был понятен без переписки, и дать английские поисковые "
+            "запросы по книге правил. Вызывай всегда."
         ),
         "parameters": {
             "type": "object",
             "properties": {
+                "standalone_question": {
+                    "type": "string",
+                    "description": (
+                        "Новый вопрос по-русски, понятный без переписки. Если "
+                        "он ссылается на прошлое («он», «а если», «второй "
+                        "вариант», «а для мага?») — подставь, о ком и о чём "
+                        "речь. Если он о новом — оставь его как есть и не "
+                        "добавляй прошлую тему: «Что я могу купить?» после "
+                        "разговора о заклинаниях — это вопрос о покупках."
+                    ),
+                },
                 "queries": {
                     "type": "array",
                     "items": {"type": "string"},
                     "description": (
-                        "По одному короткому запросу на каждое правило, о "
+                        "Для standalone_question: по одному короткому "
+                        "английскому запросу на каждое правило, о "
                         "котором спрашивают. Запрос — это термин из книги: "
                         "название действия, черты, заклинания, снаряжения, "
                         "состояния. Не переводи дословно и не пиши "
@@ -239,12 +249,32 @@ SEARCH_QUERY_TOOL: dict[str, Any] = {
                         "одно правило на несколько запросов и не добавляй "
                         "правила, о которых не спрашивали."
                     ),
-                }
+                },
             },
-            "required": ["queries"],
+            "required": ["standalone_question", "queries"],
         },
     },
 }
+
+#: Past this the model is answering, not restating.
+MAX_STANDALONE_CHARS = 500
+
+
+def parse_standalone_question(raw_arguments: str) -> str | None:
+    """The question as it reads without the dialogue, or None if unusable."""
+    try:
+        parsed = json.loads(raw_arguments)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    standalone = parsed.get("standalone_question")
+    if not isinstance(standalone, str):
+        return None
+    standalone = standalone.strip()
+    if not standalone or len(standalone) > MAX_STANDALONE_CHARS:
+        return None
+    return standalone
 
 
 def parse_search_queries(raw_arguments: str) -> list[str]:

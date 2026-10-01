@@ -39,10 +39,12 @@ CHARACTER_INSTRUCTIONS = (
 
 
 HISTORY_INSTRUCTIONS = (
-    "Перед последним вопросом идут предыдущие сообщения этого чата. Они нужны "
-    "только чтобы понимать, о чём спрашивает игрок: твои прошлые ответы не "
-    "являются источником правил. Правила бери из найденных правил при "
-    "последнем вопросе."
+    "Перед последним вопросом идут предыдущие сообщения этого чата. Отвечай "
+    "на последний вопрос. Прошлые сообщения нужны только чтобы понять, к чему "
+    "в нём относятся слова вроде «он», «а если», «второй вариант»; если "
+    "последний вопрос о другом — прошлую тему не продолжай. Твои прошлые "
+    "ответы не являются источником правил: правила бери из найденных правил "
+    "при последнем вопросе."
 )
 
 
@@ -211,6 +213,7 @@ def build_ask_messages(
     weak: bool = False,
     digest: str | None = None,
     character_level: int | None = None,
+    standalone: str | None = None,
 ) -> list[dict[str, Any]]:
     """Instructions, then the remembered turns, then this question.
 
@@ -239,7 +242,11 @@ def build_ask_messages(
         return messages
 
     rules = _context_block(retrieved, weak, digest, character_level)
-    messages.append(
-        {"role": "user", "content": f"Найденные правила:\n{rules}\n\nВопрос: {question}"}
-    )
+    asked = f"Вопрос: {question}"
+    # The restated question is the one the rules were searched for; shown
+    # next to the player's words so the dialogue informs the reading of the
+    # question instead of replacing it.
+    if standalone and standalone.strip().casefold() != question.strip().casefold():
+        asked = f"Вопрос игрока: {question}\nС учётом разговора он означает: {standalone}"
+    messages.append({"role": "user", "content": f"Найденные правила:\n{rules}\n\n{asked}"})
     return messages

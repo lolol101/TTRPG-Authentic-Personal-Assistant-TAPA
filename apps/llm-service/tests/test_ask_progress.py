@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from app.api import ask as ask_api
 from app.core.llm_provider import Completion
+from app.core.query_rewrite import Rewrite
 from app.core.sheet_plan import PlanStep
 from app.main import app
 
@@ -53,7 +54,9 @@ def _stub_stream(monkeypatch) -> None:
 def test_a_plain_question_reports_rewriting_searching_then_generating(monkeypatch) -> None:
     monkeypatch.setattr(ask_api, "retrieve", lambda *a, **k: [_hit("Grapple")])
     monkeypatch.setattr(ask_api, "plan_for", lambda question: [])
-    monkeypatch.setattr(ask_api, "search_queries_for", lambda question: ["Grapple action"])
+    monkeypatch.setattr(
+        ask_api, "rewrite_question", lambda question, history: Rewrite(None, ["Grapple action"])
+    )
     _stub_stream(monkeypatch)
 
     events = _events({"question": "Что такое Grapple?"})
@@ -66,7 +69,7 @@ def test_a_split_request_names_each_area_as_it_is_searched(monkeypatch) -> None:
     """The point of the indicator: six searches look identical from outside,
     so say which one is running and how many there are."""
     monkeypatch.setattr(ask_api, "retrieve", lambda *a, **k: [_hit("X")])
-    monkeypatch.setattr(ask_api, "search_queries_for", lambda question: [])
+    monkeypatch.setattr(ask_api, "rewrite_question", lambda question, history: Rewrite(None, []))
     monkeypatch.setattr(
         ask_api,
         "plan_for",
@@ -96,7 +99,7 @@ def test_progress_comes_before_the_answer_not_after(monkeypatch) -> None:
     """Arriving after the text would make it a log, not an indicator."""
     monkeypatch.setattr(ask_api, "retrieve", lambda *a, **k: [_hit("Grapple")])
     monkeypatch.setattr(ask_api, "plan_for", lambda question: [])
-    monkeypatch.setattr(ask_api, "search_queries_for", lambda question: [])
+    monkeypatch.setattr(ask_api, "rewrite_question", lambda question, history: Rewrite(None, []))
     _stub_stream(monkeypatch)
 
     names = [name for name, _ in _events({"question": "Что такое Grapple?"})]
@@ -108,7 +111,7 @@ def test_progress_comes_before_the_answer_not_after(monkeypatch) -> None:
 def test_the_answer_still_arrives_unchanged(monkeypatch) -> None:
     monkeypatch.setattr(ask_api, "retrieve", lambda *a, **k: [_hit("Grapple")])
     monkeypatch.setattr(ask_api, "plan_for", lambda question: [])
-    monkeypatch.setattr(ask_api, "search_queries_for", lambda question: [])
+    monkeypatch.setattr(ask_api, "rewrite_question", lambda question, history: Rewrite(None, []))
     _stub_stream(monkeypatch)
 
     events = _events({"question": "Что такое Grapple?"})
@@ -123,7 +126,7 @@ def test_weak_event_arrives_before_generating(monkeypatch) -> None:
     even starts, not tucked away in "done" once the answer is finished."""
     monkeypatch.setattr(ask_api, "retrieve", lambda *a, **k: [_hit("Grapple")])
     monkeypatch.setattr(ask_api, "plan_for", lambda question: [])
-    monkeypatch.setattr(ask_api, "search_queries_for", lambda question: [])
+    monkeypatch.setattr(ask_api, "rewrite_question", lambda question, history: Rewrite(None, []))
     monkeypatch.setattr(ask_api.settings, "retrieval_weak_distance", 0.85)
     _stub_stream(monkeypatch)
 
@@ -143,7 +146,7 @@ def test_weak_event_is_true_when_nothing_close_was_found(monkeypatch) -> None:
     far_hit = {**_hit("X"), "distance": 1.2}
     monkeypatch.setattr(ask_api, "retrieve", lambda *a, **k: [far_hit])
     monkeypatch.setattr(ask_api, "plan_for", lambda question: [])
-    monkeypatch.setattr(ask_api, "search_queries_for", lambda question: [])
+    monkeypatch.setattr(ask_api, "rewrite_question", lambda question, history: Rewrite(None, []))
     monkeypatch.setattr(ask_api.settings, "retrieval_weak_distance", 0.85)
     _stub_stream(monkeypatch)
 
@@ -159,7 +162,7 @@ def test_selection_is_announced_and_trims_the_sources(monkeypatch) -> None:
 
     monkeypatch.setattr(ask_api, "retrieve", lambda *a, **k: [_hit("Grapple"), _hit("Shove")])
     monkeypatch.setattr(ask_api, "plan_for", lambda question: [])
-    monkeypatch.setattr(ask_api, "search_queries_for", lambda question: [])
+    monkeypatch.setattr(ask_api, "rewrite_question", lambda question, history: Rewrite(None, []))
     monkeypatch.setattr(ask_api.settings, "context_mode", "select")
     monkeypatch.setattr(
         context_select,
@@ -186,7 +189,7 @@ def test_garbage_is_cut_before_any_selection_call(monkeypatch) -> None:
 
     monkeypatch.setattr(ask_api, "retrieve", lambda *a, **k: [{**_hit("X"), "distance": 1.1}])
     monkeypatch.setattr(ask_api, "plan_for", lambda question: [])
-    monkeypatch.setattr(ask_api, "search_queries_for", lambda question: [])
+    monkeypatch.setattr(ask_api, "rewrite_question", lambda question, history: Rewrite(None, []))
     monkeypatch.setattr(ask_api.settings, "context_mode", "select")
     monkeypatch.setattr(ask_api.settings, "retrieval_max_distance", 0.9)
 

@@ -121,6 +121,14 @@ class Settings(BaseSettings):
     # single-query behaviour.
     retrieval_max_search_queries: int = 3
 
+    # How much of the chat the rewrite sees when it restates a question so it
+    # reads without the dialogue. Enough for "а если он…" or "второй вариант"
+    # to find what they point at; assistant answers are cut short because
+    # what a follow-up leans on sits near their start, and long prose only
+    # slows the call.
+    rewrite_history_messages: int = 4
+    rewrite_history_answer_chars: int = 400
+
     # On a sheet-building request, restrict each area's search to the chunk
     # categories that area can actually be answered from. Measured on the
     # live index: a build-style query put 2.44 of 5 context slots in the

@@ -13,7 +13,7 @@ from app.core.context_select import narrow, within_distance
 from app.core.history import FittedHistory, Turn, fit_history, retrieval_query
 from app.core.llm_provider import Completion, LLMNotConfiguredError, complete, stream
 from app.core.prompts import build_ask_messages
-from app.core.query_rewrite import search_queries_for
+from app.core.query_rewrite import rewrite_question
 from app.core.retriever import is_weak, retrieve
 from app.core.sheet_plan import PlanStep, categories_for, plan_for
 from app.core.sse import event
@@ -121,10 +121,11 @@ def _prepare_with_progress(
         yield event("stage", {"stage": "planning"})
         steps = plan_for(payload.question)
 
-    # Searched against the whole history, not the trimmed part: a follow-up
-    # should still find the right rule page even when the turn it leans on
-    # has already slid out of the model's window.
+    # The fallback when nothing restates the question: glued to the previous
+    # one from the whole history, not the trimmed part, so a follow-up still
+    # finds its rule page after the turn it leans on slid out of the window.
     query = retrieval_query(payload.question, turns)
+    standalone: str | None = None
 
     retrieved: list[dict] = []
     seen: set[str] = set()
@@ -148,7 +149,14 @@ def _prepare_with_progress(
         english: list[str] = []
         if settings.retrieval_rewrite_query:
             yield event("stage", {"stage": "rewriting"})
-            english = search_queries_for(query)
+            rewritten = rewrite_question(payload.question, turns)
+            english = rewritten.queries
+            if rewritten.standalone:
+                # A follow-up comes back with its subject filled in, a new
+                # topic comes back without the old one — either way it reads
+                # on its own, so neither search nor selection needs the glue.
+                standalone = rewritten.standalone
+                query = standalone
 
         yield event("stage", {"stage": "searching"})
         # The English phrasings go first: on this index they are the ones
@@ -179,6 +187,7 @@ def _prepare_with_progress(
         weak=weak,
         digest=context.digest,
         character_level=payload.character_level,
+        standalone=standalone,
     )
     return (context.chunks, messages, fitted, weak)
 
