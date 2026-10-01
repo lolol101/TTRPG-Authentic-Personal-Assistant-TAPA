@@ -88,6 +88,7 @@ def test_ask_proxies_question_and_returns_answer(client, monkeypatch) -> None:
         "k": None,
         "ruleset": None,
         "character_context": None,
+        "character_level": None,
         "allow_sheet_edits": False,
         "history": [],
     }
@@ -109,6 +110,24 @@ def test_a_chosen_character_decides_which_rules_are_searched(client, monkeypatch
 
     # The sheet's own system wins over whatever the request asked for.
     assert captured["json"]["ruleset"] == "dnd5e"
+
+
+def test_the_characters_level_travels_as_a_number(client, monkeypatch) -> None:
+    """llm-service marks what a found spell or item needs against the
+    character's level; read out of the rendered sheet text, a level would be
+    one more number for the model to get wrong."""
+    headers = _auth_headers(client)
+    character_id = client.post(
+        "/characters", json={"name": "Лира", "level": 3}, headers=headers
+    ).json()["id"]
+    captured: dict = {}
+    _stub_ask(monkeypatch, captured)
+
+    client.post(
+        "/llm/ask", json={"question": "вопрос", "character_id": character_id}, headers=headers
+    )
+
+    assert captured["json"]["character_level"] == 3
 
 
 def test_ask_sends_the_sheet_when_a_character_is_named(client, monkeypatch) -> None:
