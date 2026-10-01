@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings
 
@@ -142,6 +143,25 @@ class Settings(BaseSettings):
     # genuine answer to a threshold set from too little data. Revisit once
     # the golden set is broad enough to measure the trade-off properly.
     retrieval_weak_distance: float = 0.85
+
+    # Hits farther than this are dropped before the model sees them — the
+    # coarse cut against outright garbage, not the judgement of relevance
+    # (that is context_mode's job). Set from the same measurement as
+    # retrieval_weak_distance: off-topic questions never landed closer than
+    # 0.90, so such a question reaches the model with no context at all and
+    # costs no selection call. Looser than the weak threshold on purpose:
+    # a supporting page at 0.87 may still be worth showing the selector.
+    retrieval_max_distance: float = 0.90
+
+    # What stands between retrieval and the answer:
+    #   "off"    — every hit within retrieval_max_distance goes in as is;
+    #   "select" — one extra call names which hits bear on the question, and
+    #              only those go in, verbatim;
+    #   "digest" — one extra call writes a condensed extract from the hits,
+    #              and the answer is built from that instead of the pages.
+    # select and digest are candidates measured against each other by
+    # evals/compare_context_modes.py; see app/core/context_select.py.
+    context_mode: Literal["off", "select", "digest"] = "off"
 
     # What the dialogue may take of the model's window. The rules context is
     # retrieved fresh every turn and is the point of the app, so it is served
