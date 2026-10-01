@@ -35,7 +35,7 @@ def test_build_ask_prompt_includes_context_and_question() -> None:
 def test_build_ask_prompt_handles_no_context() -> None:
     prompt = _question(build_ask_messages("Вопрос без ответа", []))
 
-    assert "контекст не найден" in prompt.lower()
+    assert "ничего подходящего" in prompt.lower()
     assert "Вопрос без ответа" in prompt
 
 
@@ -65,12 +65,12 @@ def test_a_confident_retrieval_carries_no_weak_notice() -> None:
 
 
 def test_weak_is_not_said_about_an_already_empty_context() -> None:
-    """Empty context already reads as "контекст не найден" — a second,
+    """Empty context already reads as "nothing found" — a second,
     differently worded caveat on top of it would say the same thing twice."""
     prompt = _question(build_ask_messages("вопрос", [], weak=True))
 
     assert "не подгоняй" not in prompt.lower()
-    assert "контекст не найден" in prompt.lower()
+    assert "ничего подходящего" in prompt.lower()
 
 
 def test_build_ask_prompt_numbers_multiple_sources() -> None:
@@ -271,3 +271,24 @@ def test_an_empty_context_forbids_answering_rules_from_memory() -> None:
 
     assert "по памяти" in content
     assert "лист" in content
+
+
+def test_every_named_rule_must_stand_on_a_found_page() -> None:
+    """Replayed live chat: with one page found, the model filled a spell
+    list from memory "по стандартным правилам". The rule has to be stated
+    per claim and name that supplement, or it is read as allowed."""
+    prompt = build_system_prompt()
+
+    assert "должно стоять на этих страницах" in prompt
+    assert "по стандартным правилам" in prompt
+
+
+def test_the_word_context_never_reaches_the_model_as_a_label() -> None:
+    """The player never sees a "контекст"; a model shown that word as the
+    heading of its material repeats it in 8 answers of 9 (measured)."""
+    retrieved = [{"id": "a", "text": "текст A", "metadata": {"title": "A"}, "distance": 0.5}]
+
+    content = _question(build_ask_messages("вопрос", retrieved))
+
+    assert content.startswith("Найденные правила:")
+    assert "контекст" not in content.lower()
