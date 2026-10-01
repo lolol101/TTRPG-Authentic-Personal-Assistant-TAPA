@@ -27,7 +27,17 @@ def test_to_metadata_flattens_traits_and_defaults_missing_fields() -> None:
         "traits": "Атака",
         "language": "ru",
         "ruleset": "pf2e",
+        "license": "",
     }
+
+
+def test_the_licence_of_a_chunk_reaches_the_index() -> None:
+    """Journal pages are indexed without a licence stamp (DECISIONS.md,
+    2026-10-01); the index has to keep that visible and filterable."""
+    record = {"url": "u", "title": "GM Screen — Treasure", "category": "journals"}
+
+    assert ingest.to_metadata({**record, "license": "unstamped"})["license"] == "unstamped"
+    assert ingest.to_metadata(record)["license"] == ""
 
 
 def test_to_metadata_handles_missing_source_book_and_traits() -> None:

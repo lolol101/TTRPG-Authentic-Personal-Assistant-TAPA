@@ -193,7 +193,7 @@ export interface AskDone {
  * only while searching a split request.
  */
 export interface AskStage {
-  stage: 'rewriting' | 'planning' | 'searching' | 'generating'
+  stage: 'rewriting' | 'planning' | 'searching' | 'selecting' | 'generating'
   area?: string
   index?: number
   total?: number

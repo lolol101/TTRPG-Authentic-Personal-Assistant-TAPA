@@ -34,10 +34,13 @@ class Settings(BaseSettings):
     llm_service_url: str = "http://localhost:8100"
     # A local 14B on the GPU thinks longer than a hosted model did.
     llm_request_timeout_seconds: float = 300.0
-    # One extra round trip, only when the checker rejected part of a sheet
-    # proposal: the model gets to read what it got wrong and try again once,
-    # instead of the player just seeing a wall of "unavailable" paths.
+    # Extra round trips, only when the checker rejected part of a sheet
+    # proposal: the model reads what it got wrong and sends corrections,
+    # instead of the player just seeing a wall of "unavailable" paths. Each
+    # round sends back only what is still refused; past a couple of rounds a
+    # model that still misses is not reliably fixed by asking again.
     sheet_edit_retry: bool = True
+    sheet_edit_retry_attempts: int = 2
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

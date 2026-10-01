@@ -223,6 +223,11 @@ def to_text(html: str) -> str:
 
     # Block elements must not fuse two sentences into "First.Second".
     soup = BeautifulSoup(text, "lxml")
+    # Nor may two table cells fuse: the Character Wealth row for level 1 read
+    # "1-15 gp15 gp", and the model added the two 15s up into 30.
+    for cell in soup.find_all(["td", "th"]):
+        if cell.find_next_sibling(["td", "th"]):
+            cell.append(" | ")
     for block in soup.find_all(["p", "li", "div", "br", "tr", "h1", "h2", "h3", "h4"]):
         block.append("\n")
     text = soup.get_text()
@@ -467,6 +472,10 @@ def _publication_of(holder: object) -> dict:
     return publication if isinstance(publication, dict) else {}
 
 
+#: The licence recorded for a journal page that carries no stamp at all.
+_UNSTAMPED = "unstamped"
+
+
 def _is_indexable(publication: dict) -> bool:
     """Open and remastered — the two things the corpus promises about itself.
 
@@ -488,9 +497,11 @@ def journal_to_pages(
     nothing that reads like a book.
 
     Licence and remaster are taken from the page, falling back to the entry.
-    A page stamped with neither stays out: an unstamped page is not evidence
-    that the text is open, and this corpus is worth exactly what that
-    guarantee is worth.
+    A page stamped closed or pre-remaster stays out. A page stamped with
+    nothing goes in, marked "unstamped": none of the 483 journal pages in the
+    packs carries a stamp, and the project decided to index them anyway
+    (DECISIONS.md, 2026-10-01) — so the gap is recorded on every chunk
+    instead of decided silently in code.
     """
     if not isinstance(entry, dict):
         return []
@@ -507,8 +518,9 @@ def journal_to_pages(
             continue
 
         publication = _publication_of(page) or entry_publication
-        if not _is_indexable(publication):
+        if publication and not _is_indexable(publication):
             continue
+        license = str(publication.get("license") or "") if publication else _UNSTAMPED
 
         text = page.get("text")
         content = text.get("content") if isinstance(text, dict) else None
@@ -521,16 +533,24 @@ def journal_to_pages(
         # halves in a title only cost the embedding room to say less.
         names = [name for name in (entry_name, page_name) if name]
         title = " — ".join(dict.fromkeys(names))
+        # Items open with their name and stat line (see _header); journal
+        # prose did not, and its embedding never learned what it was about.
+        body = f"{title}\n\n{body}" if title else body
 
+        # One file holds every page of a journal, and chunk ids are a hash of
+        # the url: without an anchor, 1077 journal chunks collapsed into 37
+        # on the first ingest. The link still opens the file.
+        anchor = str(page.get("_id") or page_name or len(parsed))
         parsed.append(
             ParsedPage(
-                url=f"{_SOURCE_REPO}/blob/{ref}/packs/pf2e/{relative_path}",
+                url=f"{_SOURCE_REPO}/blob/{ref}/packs/pf2e/{relative_path}#{anchor}",
                 category=pack,
                 title=title,
                 source_book=publication.get("title") or None,
                 traits=[],
                 body=body,
                 fetched_at="",
+                license=license,
             )
         )
     return parsed
@@ -567,6 +587,7 @@ def entry_to_page(
         traits=[str(t) for t in (_value_of(system, "traits") or [])],
         body="\n\n".join(parts),
         fetched_at="",
+        license=str(publication.get("license") or ""),
     )
 
 

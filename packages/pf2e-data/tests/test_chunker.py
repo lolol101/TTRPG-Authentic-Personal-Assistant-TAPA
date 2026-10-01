@@ -53,3 +53,28 @@ def test_chunk_ids_are_stable_and_suffixed_when_split() -> None:
     assert len(multi) > 1
     base = multi[0].id.rsplit("-", 1)[0]
     assert [c.id for c in multi] == [f"{base}-{i}" for i in range(len(multi))]
+
+
+def test_the_licence_rides_along_into_every_chunk() -> None:
+    """Where a chunk's text came from is metadata the index can filter on —
+    an unstamped journal page must stay recognisable as one."""
+    page = _page("Первый абзац.\n\n" + "x" * 300)
+    page.license = "unstamped"
+
+    chunks = chunk_page(page, max_chars=100)
+
+    assert {chunk.license for chunk in chunks} == {"unstamped"}
+
+
+def test_every_continuation_chunk_repeats_the_page_title() -> None:
+    """Measured 2026-10-01: a journal page split into several chunks left all
+    but the first without a word of what it was about, and "fire domain
+    cleric" did not find the Fire Domain page at all."""
+    paragraphs = [f"Параграф номер {i} с текстом правила." for i in range(20)]
+    page = _page("\n".join(paragraphs))
+
+    chunks = chunk_page(page, max_chars=100)
+
+    assert len(chunks) > 1
+    assert all(chunk.text.startswith("Удар\n\n") for chunk in chunks[1:])
+    assert all(len(chunk.text) <= 100 for chunk in chunks)

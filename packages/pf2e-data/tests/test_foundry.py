@@ -202,6 +202,7 @@ def test_a_licensed_remastered_entry_is_kept() -> None:
     assert page.category == "spells"
     assert page.source_book == "Pathfinder Player Core"
     assert page.traits == ["fire", "concentrate"]
+    assert page.license == "ORC"
 
 
 @pytest.mark.parametrize("licence", ["", None, "Paizo", "proprietary"])
@@ -751,11 +752,20 @@ def test_a_page_repeating_the_entry_name_is_not_titled_twice() -> None:
     assert _pages_of(entry)[0].title == "Running the Game"
 
 
-def test_an_unstamped_page_stays_out() -> None:
-    """Silence is not a licence: unstamped prose must not reach the index."""
+def test_an_unstamped_page_is_indexed_and_says_so() -> None:
+    """Decided 2026-10-01 (DECISIONS.md): none of the 483 journal pages in
+    the packs carries a stamp, and the project indexes them anyway. Where
+    the text came from stays visible as metadata, not as a guess."""
     entry = _journal(pages=[{"name": "Somewhere", "text": {"content": _PROSE}}])
 
-    assert _pages_of(entry) == []
+    pages = _pages_of(entry)
+
+    assert [page.title for page in pages] == ["Running the Game — Somewhere"]
+    assert pages[0].license == "unstamped"
+
+
+def test_a_stamped_page_carries_its_licence() -> None:
+    assert _pages_of(_journal())[0].license == "ORC"
 
 
 def test_a_page_inherits_the_licence_of_its_entry() -> None:
@@ -819,3 +829,45 @@ def test_convert_tree_reads_journals_alongside_items(tmp_path) -> None:
 
     assert counts == {"spells": 1, "journals": 1}
     assert (out / "journals.jsonl").is_file()
+
+
+def test_every_page_of_one_journal_gets_its_own_chunk_ids() -> None:
+    """Measured on the first ingest: all pages of a journal shared the file's
+    url, chunk ids are a hash of the url, and 1077 journal chunks collapsed
+    into 37 on deduplication."""
+    from app.chunker import chunk_page
+
+    entry = _journal(
+        pages=[
+            {"_id": "p1", "name": "Cover", "text": {"content": _PROSE}},
+            {"_id": "p2", "name": "Treasure", "text": {"content": _PROSE}},
+        ]
+    )
+
+    pages = _pages_of(entry)
+    ids = [chunk.id for page in pages for chunk in chunk_page(page)]
+
+    assert len(set(page.url for page in pages)) == 2
+    assert len(set(ids)) == len(ids)
+    assert pages[0].url.endswith("journals/one.json#p1")
+
+
+def test_a_journal_page_opens_with_its_title() -> None:
+    """Items open with their name and stat line; journal prose did not, and
+    an embedding of the bare text did not know it was "Terrain and Cover"."""
+    assert _pages_of(_journal())[0].body.startswith("Running the Game — Difficulty Classes")
+
+
+def test_table_cells_stay_apart() -> None:
+    """Measured live: the Character Wealth row for level 1 read "1-15 gp15 gp",
+    and the model answered 15 + 15 = 30 gp for a character's starting money.
+    It is 15 gp, given either way."""
+    html = (
+        "<table><tr><th>Level</th><th>Permanent Items</th><th>Currency</th>"
+        "<th>Lump Sum</th></tr><tr><td>1</td><td>-</td><td>15 gp</td><td>15 gp</td></tr></table>"
+    )
+
+    text = to_text(html)
+
+    assert "Level | Permanent Items | Currency | Lump Sum" in text
+    assert "1 | - | 15 gp | 15 gp" in text
