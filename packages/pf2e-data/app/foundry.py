@@ -223,6 +223,11 @@ def to_text(html: str) -> str:
 
     # Block elements must not fuse two sentences into "First.Second".
     soup = BeautifulSoup(text, "lxml")
+    # Nor may two table cells fuse: the Character Wealth row for level 1 read
+    # "1-15 gp15 gp", and the model added the two 15s up into 30.
+    for cell in soup.find_all(["td", "th"]):
+        if cell.find_next_sibling(["td", "th"]):
+            cell.append(" | ")
     for block in soup.find_all(["p", "li", "div", "br", "tr", "h1", "h2", "h3", "h4"]):
         block.append("\n")
     text = soup.get_text()

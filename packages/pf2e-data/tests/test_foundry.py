@@ -856,3 +856,18 @@ def test_a_journal_page_opens_with_its_title() -> None:
     """Items open with their name and stat line; journal prose did not, and
     an embedding of the bare text did not know it was "Terrain and Cover"."""
     assert _pages_of(_journal())[0].body.startswith("Running the Game — Difficulty Classes")
+
+
+def test_table_cells_stay_apart() -> None:
+    """Measured live: the Character Wealth row for level 1 read "1-15 gp15 gp",
+    and the model answered 15 + 15 = 30 gp for a character's starting money.
+    It is 15 gp, given either way."""
+    html = (
+        "<table><tr><th>Level</th><th>Permanent Items</th><th>Currency</th>"
+        "<th>Lump Sum</th></tr><tr><td>1</td><td>-</td><td>15 gp</td><td>15 gp</td></tr></table>"
+    )
+
+    text = to_text(html)
+
+    assert "Level | Permanent Items | Currency | Lump Sum" in text
+    assert "1 | - | 15 gp | 15 gp" in text
