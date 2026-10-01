@@ -7,6 +7,7 @@ listed here is refused — a sheet is the player's, and a model that can
 quietly rewrite arbitrary fields is worse than one that cannot write at all.
 """
 
+import difflib
 from dataclasses import dataclass
 from typing import Any
 
@@ -53,6 +54,10 @@ SHEET_TEXT_FIELDS: dict[str, str] = {
     "resistances": "Сопротивления",
     "notes": "Заметки",
 }
+
+#: Of the fields above, the ones the player writes rather than the rules
+#: decide: the assistant may add to them but not replace them.
+_PLAYERS_PROSE_FIELDS = {"notes", "speed_notes", "saves_notes"}
 
 #: sheet_data.<group>.<key> — the prose sections of the printed sheet.
 SHEET_TEXT_GROUPS: dict[str, tuple[str, dict[str, str]]] = {
@@ -193,6 +198,86 @@ _STAT_KEYS = (
 _STAT_PARTS = {"rank", "item", "temporary"}
 
 _RANKS = set(rules.RANK_LABEL)
+
+#: The book's abbreviations, as models write them in a saves folder.
+_STAT_SHORT_NAMES = {"fort": "fortitude", "ref": "reflex"}
+
+#: Every path a proposal may write, for suggesting the nearest one when a
+#: proposal misses. The model reads the suggestion back on its retry.
+_EDITABLE_PATHS: tuple[str, ...] = (
+    *COLUMN_FIELDS,
+    *TEXT_COLUMNS,
+    *(f"sheet_data.{key}" for key in SHEET_TEXT_FIELDS),
+    *(
+        f"sheet_data.{group}.{key}"
+        for group, (_, keys) in SHEET_TEXT_GROUPS.items()
+        for key in keys
+    ),
+    *(f"sheet_data.{key}" for key in CARD_FIELDS),
+    "sheet_data.hero_points",
+    "sheet_data.dying",
+    "sheet_data.wounded",
+    *(f"sheet_data.ability_scores.{key}" for key in rules.ABILITY_LABEL),
+    *(f"sheet_data.stats.{stat}.{part}" for stat in sorted(_STAT_KEYS) for part in _STAT_PARTS),
+    *(f"sheet_data.conditions.{key}" for key in sorted(_CONDITION_KEYS)),
+)
+
+
+def _hint(path: str) -> str:
+    """Where a refused proposal should have gone, when that can be told.
+
+    Live sheet builds missed in the same few ways: a whole prose section
+    written as one value, an ability filed as a skill, a card list under an
+    invented folder. A retry told only "unavailable" guessed again and missed
+    again; told the real path, it can fix the proposal.
+    """
+    if path in _EDITABLE_PATHS:
+        # The path exists; what was refused is the value, and its own reason
+        # already says what is wrong with it.
+        return ""
+    parts = path.split(".")
+    lowered = path.lower()
+    # Spelled out rather than left to string similarity: measured on the
+    # paths seen live, the nearest match for sheet_data.feats.class was
+    # stats.class_dc and for sheet_data.cantrips was sheet_data.traits.
+    if "feat" in lowered:
+        lists = ", ".join(f"sheet_data.{key}" for key in CARD_FIELDS if key.endswith("_feats"))
+        return f"черты пишутся в один из списков: {lists}"
+    if "spell" in lowered or "cantrip" in lowered:
+        lists = ", ".join(f"sheet_data.{key}" for key in CARD_FIELDS if key.endswith("spells"))
+        return f"заклинания пишутся в один из списков: {lists}"
+    if path == "sheet_data.conditions":
+        return (
+            "это раздел; указывай числом только те состояния, что действуют на "
+            "персонажа: sheet_data.conditions.<frightened|sickened|…>; у нового "
+            "персонажа их обычно нет, и тогда ничего присылать не нужно"
+        )
+    if len(parts) == 2 and parts[0] == "sheet_data" and parts[1] in SHEET_TEXT_GROUPS:
+        keys = "|".join(SHEET_TEXT_GROUPS[parts[1]][1])
+        return f"это раздел, укажи поле: sheet_data.{parts[1]}.<{keys}>"
+    named_stat = next(
+        (
+            _STAT_SHORT_NAMES.get(part, part)
+            for part in parts[1:]
+            if _STAT_SHORT_NAMES.get(part, part) in _STAT_KEYS
+        ),
+        None,
+    )
+    if parts[0] == "sheet_data" and named_stat and parts[1] != "stats":
+        return (
+            f"навыки и испытания пишутся так: sheet_data.stats.{named_stat}.<rank|item|temporary>"
+        )
+    if len(parts) >= 3 and parts[:2] == ["sheet_data", "stats"]:
+        if parts[2] in rules.ABILITY_LABEL:
+            return (
+                f"{parts[2]} — характеристика, а не навык: значение пишется в "
+                f"sheet_data.ability_scores.{parts[2]}, модификатор — в {parts[2]}_mod"
+            )
+        if parts[2] not in _STAT_KEYS:
+            return "в sheet_data.stats есть только: " + ", ".join(sorted(_STAT_KEYS))
+        return "у навыка меняются только rank, item и temporary; модификатор считает программа"
+    close = difflib.get_close_matches(path, _EDITABLE_PATHS, n=1, cutoff=0.8)
+    return f"возможно, имелось в виду «{close[0]}»" if close else ""
 
 
 @dataclass(frozen=True)
@@ -389,18 +474,36 @@ def _resolve_text_column(character: Character, change: ProposedChange) -> Resolv
     )
 
 
+def _squashed(text: str) -> str:
+    return " ".join(text.split())
+
+
 def _resolve_sheet_text(
-    character: Character, change: ProposedChange, keys: list[str], label: str
+    character: Character,
+    change: ProposedChange,
+    keys: list[str],
+    label: str,
+    players_prose: bool = False,
 ) -> ResolvedChange:
     current: Any = character.sheet_data or {}
     for key in keys:
         current = current.get(key) if isinstance(current, dict) else None
+    before = current or ""
+    value = _as_text(change.value, label)
+    # Live sheet build, 2026-10-01: the player's backstory in the notes was
+    # replaced by a summary of the build, one confirmation among forty. What
+    # the player wrote may be added to, never dropped.
+    if players_prose and before.strip() and _squashed(before) not in _squashed(value):
+        raise ChangeRejected(
+            f"{label}: здесь уже есть текст игрока, его нельзя заменить, только "
+            "дополнить — пришли прежний текст целиком и добавь своё после него"
+        )
     return ResolvedChange(
         path=change.path,
-        value=_as_text(change.value, label),
+        value=value,
         reason=change.reason,
         label=label,
-        before=current or "",
+        before=before,
         section=section_for(change.path),
     )
 
@@ -413,6 +516,12 @@ def _resolve_sheet(character: Character, change: ProposedChange) -> ResolvedChan
         key = parts[2]
         if key not in _CONDITION_KEYS:
             raise ChangeRejected(f"Неизвестное состояние: {key}")
+        if isinstance(change.value, bool) or str(change.value).lower() == "false":
+            # Seen live: told the conditions were a section of fields, a
+            # sheet build sent all 31 of them as False. Absent is the answer.
+            raise ChangeRejected(
+                f"Состояние {key}: ожидалось число; если состояния нет — не присылай это поле"
+            )
         number = _as_int(change.value, f"Состояние {key}")
         if not 0 <= number <= 4:
             raise ChangeRejected(f"Состояние {key}: значение {number} вне 0…4")
@@ -513,14 +622,25 @@ def _resolve_sheet(character: Character, change: ProposedChange) -> ResolvedChan
         )
 
     if len(parts) == 2 and parts[1] in SHEET_TEXT_FIELDS:
-        return _resolve_sheet_text(character, change, [parts[1]], SHEET_TEXT_FIELDS[parts[1]])
+        return _resolve_sheet_text(
+            character,
+            change,
+            [parts[1]],
+            SHEET_TEXT_FIELDS[parts[1]],
+            players_prose=parts[1] in _PLAYERS_PROSE_FIELDS,
+        )
 
     if len(parts) == 3 and parts[1] in SHEET_TEXT_GROUPS:
         group_label, keys = SHEET_TEXT_GROUPS[parts[1]]
         if parts[2] not in keys:
             raise ChangeRejected(f"{group_label}: неизвестное поле «{parts[2]}»")
+        # Biography, personality, campaign: all of it is the player's writing.
         return _resolve_sheet_text(
-            character, change, [parts[1], parts[2]], f"{group_label}: {keys[parts[2]]}"
+            character,
+            change,
+            [parts[1], parts[2]],
+            f"{group_label}: {keys[parts[2]]}",
+            players_prose=True,
         )
 
     key = ".".join(parts[1:])
@@ -599,6 +719,24 @@ def normalize_path(path: str) -> str:
     ):
         return parts[2]
 
+    # "sheet_data.ability_scores.str_mod" for the same column: seen live on a
+    # sheet build for all six abilities at once, each refused as an unknown
+    # ability — the score and its modifier sit next to each other on the
+    # sheet, and the model filed both under the score's folder.
+    if (
+        len(parts) == 3
+        and parts[0] == "sheet_data"
+        and parts[1] == "ability_scores"
+        and parts[2] in _ABILITY_FIELDS
+    ):
+        return parts[2]
+
+    # "class_feats" for "sheet_data.class_feats": a card list named without
+    # its folder — seen live, after the retry was told the first guess
+    # (sheet_data.feats.class) did not exist.
+    if path in CARD_FIELDS:
+        return f"{_SHEET_PREFIX}{path}"
+
     return path
 
 
@@ -636,7 +774,13 @@ def resolve_changes(
         try:
             resolved.append(resolve_change(character, change))
         except ChangeRejected as exc:
-            rejected.append(str(exc))
+            reason = str(exc)
+            # The model reads these back to correct itself; among forty
+            # proposals a reason that does not name its path cannot be acted on.
+            if change.path not in reason:
+                reason = f"{change.path}: {reason}"
+            hint = _hint(normalize_path(change.path))
+            rejected.append(f"{reason} — {hint}" if hint else reason)
     return resolved, rejected
 
 
