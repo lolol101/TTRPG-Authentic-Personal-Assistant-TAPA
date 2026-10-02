@@ -28,7 +28,28 @@ def test_to_metadata_flattens_traits_and_defaults_missing_fields() -> None:
         "language": "ru",
         "ruleset": "pf2e",
         "license": "",
+        "translation_source": "",
+        "translation_license": "",
     }
+
+
+def test_a_translations_provenance_reaches_the_index() -> None:
+    """A translated chunk carries two licences (docs/rfc/0001): the original's
+    and the translator's. Both must stay filterable in the index."""
+    record = {
+        "url": "u",
+        "title": "Захват (Grapple)",
+        "category": "actions",
+        "license": "ORC",
+        "translation_source": "gnuraco/pf2r@abc",
+        "translation_license": "Paizo Community Use Policy + OGL 1.0a",
+    }
+
+    metadata = ingest.to_metadata(record)
+
+    assert metadata["license"] == "ORC"
+    assert metadata["translation_source"] == "gnuraco/pf2r@abc"
+    assert metadata["translation_license"] == "Paizo Community Use Policy + OGL 1.0a"
 
 
 def test_the_licence_of_a_chunk_reaches_the_index() -> None:

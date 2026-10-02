@@ -22,6 +22,7 @@ from bs4 import BeautifulSoup
 
 from app.chunker import chunk_page
 from app.models import ParsedPage
+from app.translation import Localization
 
 _log = logging.getLogger(__name__)
 
@@ -377,7 +378,7 @@ def _area_text(raw: object) -> str:
     return shape or ""
 
 
-def _header(entry: dict, text_parts: list[str]) -> None:
+def _header(entry: dict, text_parts: list[str], title: str | None = None) -> None:
     """Prepend the stat block: what a page states as a field, not as prose.
 
     A spell's own description rarely contains the words "spell", its level or
@@ -446,7 +447,7 @@ def _header(entry: dict, text_parts: list[str]) -> None:
         if value:
             facts.append(f"{label} {_spell_out_actions(str(value))}")
 
-    text_parts.append(entry["name"])
+    text_parts.append(title or entry["name"])
     if facts:
         text_parts.append(" · ".join(facts))
 
@@ -485,8 +486,38 @@ def _is_indexable(publication: dict) -> bool:
     return publication.get("license") in LICENSED and publication.get("remaster") is True
 
 
+def _bilingual(translated: str, original: str) -> str:
+    """The translated name with the book's own in brackets.
+
+    The original stays because questions arrive with English terms in them
+    and citations lead to the English record; the translation goes first
+    because it is what the text below is written in.
+    """
+    translated, original = translated.strip(), original.strip()
+    if not translated or translated == original:
+        return original
+    return f"{translated} ({original})" if original else translated
+
+
+def _translated_fields(localization: Localization | None, translated: bool) -> dict[str, str]:
+    if localization is None:
+        return {}
+    if not translated:
+        return {"language": "en"}
+    return {
+        "language": "ru",
+        "translation_source": localization.source,
+        "translation_license": localization.license,
+    }
+
+
 def journal_to_pages(
-    entry: dict, *, pack: str, relative_path: str, ref: str = DEFAULT_REF
+    entry: dict,
+    *,
+    pack: str,
+    relative_path: str,
+    ref: str = DEFAULT_REF,
+    localization: Localization | None = None,
 ) -> list[ParsedPage]:
     """A JournalEntry's text pages, one ParsedPage each.
 
@@ -522,16 +553,22 @@ def journal_to_pages(
             continue
         license = str(publication.get("license") or "") if publication else _UNSTAMPED
 
+        page_name = str(page.get("name") or "").strip()
+        translation = localization.page(pack, entry_name, page_name) if localization else None
+
         text = page.get("text")
         content = text.get("content") if isinstance(text, dict) else None
-        body = to_text(str(content or ""))
+        body = to_text(translation.html if translation else str(content or ""))
         if len(body) < MIN_TEXT_CHARS:
             continue
 
-        page_name = str(page.get("name") or "").strip()
+        shown_entry, shown_page = entry_name, page_name
+        if translation and localization:
+            shown_entry = localization.journal_name(pack, entry_name) or entry_name
+            shown_page = _bilingual(translation.name, page_name)
         # A one-page journal usually repeats its own name; two identical
         # halves in a title only cost the embedding room to say less.
-        names = [name for name in (entry_name, page_name) if name]
+        names = [name for name in (shown_entry, shown_page) if name]
         title = " — ".join(dict.fromkeys(names))
         # Items open with their name and stat line (see _header); journal
         # prose did not, and its embedding never learned what it was about.
@@ -551,13 +588,19 @@ def journal_to_pages(
                 body=body,
                 fetched_at="",
                 license=license,
+                **_translated_fields(localization, translation is not None),
             )
         )
     return parsed
 
 
 def entry_to_page(
-    entry: dict, *, pack: str, relative_path: str, ref: str = DEFAULT_REF
+    entry: dict,
+    *,
+    pack: str,
+    relative_path: str,
+    ref: str = DEFAULT_REF,
+    localization: Localization | None = None,
 ) -> ParsedPage | None:
     """One pack entry as a ParsedPage, or None if it must not be indexed."""
     if not isinstance(entry, dict) or "name" not in entry:
@@ -575,27 +618,46 @@ def entry_to_page(
     if len(body) < MIN_TEXT_CHARS:
         return None
 
+    title = str(entry["name"])
+    translation = localization.entry(pack, title) if localization else None
+    if translation:
+        translated_body = to_text(translation.html)
+        # A translation that strips to a fragment is a broken one; the
+        # English record is still a whole rule.
+        if len(translated_body) >= MIN_TEXT_CHARS:
+            body, title = translated_body, _bilingual(translation.name, title)
+        else:
+            translation = None
+
     parts: list[str] = []
-    _header(entry, parts)
+    _header(entry, parts, title=title)
     parts.append(body)
 
     return ParsedPage(
         url=f"{_SOURCE_REPO}/blob/{ref}/packs/pf2e/{relative_path}",
         category=pack,
-        title=entry["name"],
+        title=title,
         source_book=publication.get("title") or None,
         traits=[str(t) for t in (_value_of(system, "traits") or [])],
         body="\n\n".join(parts),
         fetched_at="",
         license=str(publication.get("license") or ""),
+        **_translated_fields(localization, translation is not None),
     )
 
 
-def convert_tree(packs_root: Path, output_dir: Path, ref: str = DEFAULT_REF) -> dict[str, int]:
+def convert_tree(
+    packs_root: Path,
+    output_dir: Path,
+    ref: str = DEFAULT_REF,
+    localization: Localization | None = None,
+) -> dict[str, int]:
     """Convert every pack under *packs_root*, one .jsonl per pack.
 
     Returns entries written per pack. Packs that yield nothing are left out
-    rather than written empty, so the result reads as a manifest.
+    rather than written empty, so the result reads as a manifest. With a
+    *localization*, translated records are written in its language and the
+    rest stay English.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     written: dict[str, int] = {}
@@ -619,9 +681,21 @@ def convert_tree(packs_root: Path, output_dir: Path, ref: str = DEFAULT_REF) -> 
             # A journal carries several pages of prose; an item carries one
             # description. Which of the two this is decides how it is read.
             if isinstance(entry, dict) and isinstance(entry.get("pages"), list):
-                pages = journal_to_pages(entry, pack=pack, relative_path=relative_path, ref=ref)
+                pages = journal_to_pages(
+                    entry,
+                    pack=pack,
+                    relative_path=relative_path,
+                    ref=ref,
+                    localization=localization,
+                )
             else:
-                page = entry_to_page(entry, pack=pack, relative_path=relative_path, ref=ref)
+                page = entry_to_page(
+                    entry,
+                    pack=pack,
+                    relative_path=relative_path,
+                    ref=ref,
+                    localization=localization,
+                )
                 pages = [page] if page is not None else []
 
             for page in pages:

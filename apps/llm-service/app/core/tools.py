@@ -8,6 +8,8 @@ which paths are writable and the player confirms them. Keeping the tool to
 import json
 from typing import Any
 
+from app.core.corpus_language import wording
+
 PROPOSE_SHEET_CHANGE = "propose_sheet_change"
 
 SHEET_CHANGE_TOOL: dict[str, Any] = {
@@ -204,7 +206,7 @@ def parse_clarification(raw_arguments: str) -> dict[str, Any] | None:
     return {"question": question, "options": options[:5]}
 
 
-REWRITE_SEARCH_QUERY = "search_the_rulebooks_in_english"
+REWRITE_SEARCH_QUERY = wording().rewrite_tool
 
 #: Past this a "query" is the model answering the question instead of naming
 #: it, and embedding its prose retrieves its own guesses, not the rule.
@@ -216,8 +218,8 @@ SEARCH_QUERY_TOOL: dict[str, Any] = {
         "name": REWRITE_SEARCH_QUERY,
         "description": (
             "Подготовить новый вопрос игрока к поиску: переписать его так, "
-            "чтобы он был понятен без переписки, и дать английские поисковые "
-            "запросы по книге правил. Вызывай всегда."
+            f"чтобы он был понятен без переписки, и {wording().rewrite_tool_purpose}"
+            ". Вызывай всегда."
         ),
         "parameters": {
             "type": "object",
@@ -236,21 +238,7 @@ SEARCH_QUERY_TOOL: dict[str, Any] = {
                 "queries": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": (
-                        "Для standalone_question: по одному короткому "
-                        "английскому запросу на каждое правило, о "
-                        "котором спрашивают. Запрос — это термин из книги: "
-                        "название действия, черты, заклинания, снаряжения, "
-                        "состояния. Не переводи дословно и не пиши "
-                        "предложение — пиши то, как это называется в книге. "
-                        "«Что делает действие Устрашение?» → "
-                        "[«Demoralize action»]. Если в вопросе несколько "
-                        "правил сразу, назови каждое отдельным запросом: "
-                        "«Могу ли я схватить противника, если сам напуган?» → "
-                        "[«Grapple action», «Frightened condition»]. Не дроби "
-                        "одно правило на несколько запросов и не добавляй "
-                        "правила, о которых не спрашивали."
-                    ),
+                    "description": wording().queries_detail,
                 },
             },
             "required": ["standalone_question", "queries"],
@@ -492,8 +480,7 @@ SHEET_PLAN_TOOL: dict[str, Any] = {
                                 "type": "string",
                                 "description": (
                                     "Короткий поисковый запрос по правилам для "
-                                    "этого раздела. Лучше по-английски — книги "
-                                    "правил на английском."
+                                    f"этого раздела. {wording().plan_area_query_hint}"
                                 ),
                             },
                         },

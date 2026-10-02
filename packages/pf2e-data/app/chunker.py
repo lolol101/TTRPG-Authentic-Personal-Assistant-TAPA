@@ -40,9 +40,11 @@ def chunk_page(
             title=page.title,
             source_book=page.source_book,
             traits=list(page.traits),
-            language=language,
+            language=page.language or language,
             text=part,
             license=page.license,
+            translation_source=page.translation_source,
+            translation_license=page.translation_license,
         )
         for index, part in enumerate(parts)
     ]

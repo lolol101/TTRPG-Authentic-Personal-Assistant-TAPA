@@ -27,6 +27,14 @@ class ParsedPage:
     # ("ORC", "OGL"), "unstamped" for text indexed without one, empty where
     # the source has no such notion (the pf2.ru crawl).
     license: str = ""
+    # None leaves the language to whoever chunks the page; set when one source
+    # yields pages in two languages, as the packs do with a translation laid
+    # over them.
+    language: str | None = None
+    # Who translated the text and under what terms — separate from `license`,
+    # which stays the original's (docs/rfc/0001). Empty for untranslated text.
+    translation_source: str = ""
+    translation_license: str = ""
 
 
 @dataclass
@@ -42,3 +50,5 @@ class Chunk:
     language: str = "ru"
     text: str = ""
     license: str = ""
+    translation_source: str = ""
+    translation_license: str = ""
