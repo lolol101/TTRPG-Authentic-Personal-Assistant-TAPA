@@ -102,7 +102,13 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=None, help="Cap pages per section")
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
+    # Into stdout, next to the progress: a reader tailing one log must see
+    # that the run is waiting out a refusal, not that it has hung. Stderr
+    # would also trip download_corpus.ps1 — PowerShell 5.1 turns a native
+    # stderr line into an error, and the script stops on errors.
+    logging.basicConfig(
+        level=logging.WARNING, format="%(levelname)s %(message)s", stream=sys.stdout
+    )
 
     sections = args.only or SECTIONS
     unknown = [name for name in sections if name not in SECTIONS]

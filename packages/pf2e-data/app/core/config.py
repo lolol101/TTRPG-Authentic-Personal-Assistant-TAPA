@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     user_agent: str = "TAPA-pf2e-data/0.1 (research assistant; contact via github.com/lolol101)"
     rate_limit_seconds: float = 1.0
 
+    # pf2.ru answers 403/429 while its limit lasts and sends no Retry-After,
+    # so a refused page is retried after a doubling wait. Past the total the
+    # section stops and scripts/download_corpus.ps1 takes over the waiting.
+    refusal_backoff_seconds: float = 60.0
+    refusal_backoff_max_seconds: float = 900.0
+    refusal_max_wait_seconds: float = 3600.0
+
     # Plain-text chunks longer than this are split on paragraph breaks.
     max_chunk_chars: int = 2000
 
