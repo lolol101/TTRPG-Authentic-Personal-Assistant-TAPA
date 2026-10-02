@@ -20,6 +20,7 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.foundry import DEFAULT_REF, convert_tree
+from app.translation import Localization
 
 _log = logging.getLogger("foundry")
 
@@ -44,6 +45,23 @@ def _checkout_commit(packs_root: Path) -> str:
     return result.stdout.strip() or DEFAULT_REF
 
 
+def _localization(translation_dir: str, packs_root: Path) -> Localization | None:
+    if not translation_dir:
+        return None
+    module_root = Path(translation_dir)
+    commit = _checkout_commit(module_root)
+    try:
+        return Localization.from_checkout(
+            module_root,
+            # packs/pf2e -> the checkout root, where system.pf2e.json names the packs.
+            system_root=packs_root.parent.parent,
+            source=f"{settings.translation_source_name}@{commit}",
+            license=settings.translation_license,
+        )
+    except FileNotFoundError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Convert Foundry VTT PF2e packs into chunk .jsonl files."
@@ -63,6 +81,12 @@ def main() -> None:
         default=None,
         help="Git ref to cite in source links (default: the checkout's own commit)",
     )
+    parser.add_argument(
+        "--translation",
+        default=None,
+        help="Root of a Babele localisation checkout (gnuraco/pf2r) to lay over "
+        "the packs; translated records are written in Russian",
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -74,9 +98,12 @@ def main() -> None:
 
     output_dir = Path(args.output_dir or settings.output_dir)
     ref = args.ref or _checkout_commit(packs_root)
-    written = convert_tree(packs_root, output_dir, ref=ref)
+    localization = _localization(args.translation or settings.translation_dir, packs_root)
+    written = convert_tree(packs_root, output_dir, ref=ref, localization=localization)
 
     print(f"source: foundryvtt/pf2e @ {ref}")
+    if localization:
+        print(f"translation: {localization.source} ({localization.license})")
     total = sum(written.values())
     for pack, count in sorted(written.items(), key=lambda item: -item[1]):
         print(f"  {pack:<40} {count:>6}")

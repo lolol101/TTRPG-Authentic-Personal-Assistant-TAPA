@@ -21,6 +21,12 @@ class Settings(BaseSettings):
     user_agent: str = "TAPA-pf2e-data/0.1 (research assistant; contact via github.com/lolol101)"
     rate_limit_seconds: float = 1.0
 
+    # A Babele localisation checkout laid over the Foundry packs (docs/rfc/0001).
+    # Empty means the English corpus; the CLI's --translation overrides it.
+    translation_dir: str = ""
+    translation_source_name: str = "gnuraco/pf2r"
+    translation_license: str = "Paizo Community Use Policy + OGL 1.0a"
+
     # Plain-text chunks longer than this are split on paragraph breaks.
     max_chunk_chars: int = 2000
 
