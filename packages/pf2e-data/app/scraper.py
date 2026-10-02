@@ -15,12 +15,19 @@ from app.models import RawPage
 _log = logging.getLogger(__name__)
 
 
+class RefusalPageError(httpx.HTTPError):
+    """pf2.ru answered 200 with its "suspicious activity" page instead of the rule."""
+
+
 def is_refusal(exc: Exception) -> bool:
-    """403 and 429 mean "not you, not now" — everything else is about the page.
+    """403, 429 and the refusal page mean "not you, not now" — everything
+    else is about the page.
 
     Public so app.sitemap can classify a blocked sitemap.xml the same way —
     the block is site-wide and hits that URL just as it hits any page.
     """
+    if isinstance(exc, RefusalPageError):
+        return True
     status = getattr(getattr(exc, "response", None), "status_code", None)
     return status in (403, 429)
 
@@ -74,6 +81,8 @@ class Scraper:
 
         response = client.get(url, headers={"User-Agent": self.user_agent}, timeout=30.0)
         response.raise_for_status()
+        if _is_refusal_page(response.text):
+            raise RefusalPageError(f"refusal page instead of {url}")
         page = RawPage(url=url, html=response.text, fetched_at=_now_iso())
         self._write_cache(page)
         time.sleep(self.rate_limit_seconds)
@@ -140,11 +149,21 @@ class Scraper:
         path = self._cache_path(url)
         if not path.exists():
             return None
+        html = path.read_text(encoding="utf-8")
+        if _is_refusal_page(html):
+            # Cached by crawlers that took the 200 at face value; 1200 of the
+            # first 2921 cached pages were this, not rules.
+            path.unlink()
+            return None
         fetched_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
-        return RawPage(url=url, html=path.read_text(encoding="utf-8"), fetched_at=fetched_at)
+        return RawPage(url=url, html=html, fetched_at=fetched_at)
 
     def _write_cache(self, page: RawPage) -> None:
         self._cache_path(page.url).write_text(page.html, encoding="utf-8")
+
+
+def _is_refusal_page(html: str) -> bool:
+    return settings.refusal_page_marker in html
 
 
 def _format_wait(seconds: float) -> str:

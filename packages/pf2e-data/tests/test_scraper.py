@@ -2,7 +2,7 @@ import httpx
 import pytest
 
 from app.models import RawPage
-from app.scraper import Scraper, SiteBlockedError
+from app.scraper import Scraper, SiteBlockedError, is_refusal
 
 
 class _FakeResponse:
@@ -54,6 +54,46 @@ def test_different_urls_get_different_cache_entries(scraper) -> None:
     scraper.fetch("https://pf2.ru/actions/grapple", client)
 
     assert client.calls == 2
+
+
+_REFUSAL_PAGE = "<html><title>ПОДОЗРИТЕЛЬНАЯ АКТИВНОСТЬ - pf2.ru</title></html>"
+
+
+def test_a_refusal_page_served_as_200_is_a_refusal_not_a_page(scraper) -> None:
+    client = _FakeClient(_REFUSAL_PAGE)
+
+    with pytest.raises(httpx.HTTPError) as caught:
+        scraper.fetch("https://pf2.ru/archetypes/magic warrior", client)
+
+    assert is_refusal(caught.value)
+    assert list(scraper.cache_dir.iterdir()) == []
+
+
+def test_a_cached_refusal_page_is_fetched_again(scraper) -> None:
+    url = "https://pf2.ru/archetypes/magic warrior"
+    scraper._write_cache(RawPage(url=url, html=_REFUSAL_PAGE, fetched_at="then"))
+    client = _FakeClient("<html>the rule</html>")
+
+    page = scraper.fetch(url, client)
+
+    assert page.html == "<html>the rule</html>"
+    assert client.calls == 1
+
+
+def test_fetch_all_waits_out_a_refusal_page(monkeypatch, tmp_path) -> None:
+    waits: list[float] = []
+    scraper = _patient_scraper(tmp_path, waits)
+    replies = iter([_REFUSAL_PAGE, "<html>the rule</html>"])
+
+    def _fake_get(self, url, headers=None, timeout=None):
+        return httpx.Response(200, text=next(replies), request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx.Client, "get", _fake_get)
+
+    pages = list(scraper.fetch_all(["https://pf2.ru/archetypes/magic warrior"]))
+
+    assert [page.html for page in pages] == ["<html>the rule</html>"]
+    assert waits == [60.0]
 
 
 def test_fetch_all_returns_pages_for_every_url(scraper, monkeypatch) -> None:

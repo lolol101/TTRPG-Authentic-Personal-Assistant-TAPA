@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     refusal_backoff_seconds: float = 60.0
     refusal_backoff_max_seconds: float = 900.0
     refusal_max_wait_seconds: float = 3600.0
+    # The same refusal can come as HTTP 200 with this page in place of the rule.
+    refusal_page_marker: str = "ПОДОЗРИТЕЛЬНАЯ АКТИВНОСТЬ"
 
     # Plain-text chunks longer than this are split on paragraph breaks.
     max_chunk_chars: int = 2000
