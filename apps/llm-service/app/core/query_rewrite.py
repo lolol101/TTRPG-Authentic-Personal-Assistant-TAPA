@@ -46,6 +46,7 @@ import logging
 from dataclasses import dataclass, field
 
 from app.core.config import settings
+from app.core.corpus_language import wording
 from app.core.history import Turn
 from app.core.llm_provider import Completion, complete
 from app.core.tools import (
@@ -59,12 +60,12 @@ _log = logging.getLogger(__name__)
 
 _REWRITE_INSTRUCTIONS = (
     "Ты готовишь новый вопрос игрока к поиску по книгам правил Pathfinder 2e. "
-    "Книги на английском. Тебе даны последние сообщения чата и новый вопрос. "
+    f"{wording().books} Тебе даны последние сообщения чата и новый вопрос. "
     "Всегда вызывай инструмент. В standalone_question перепиши новый вопрос "
     "по-русски так, чтобы он был понятен без переписки: если он ссылается на "
     "прошлое — подставь, о ком и о чём речь; если он о новом — не добавляй "
-    "прошлую тему. В queries дай короткие английские запросы из терминов "
-    "правил: как эта вещь называется в книге. Если в вопросе названо "
+    f"прошлую тему. В queries {wording().queries}"
+    ": как эта вещь называется в книге. Если в вопросе названо "
     "несколько правил (действие и состояние, заклинание и состояние), дай "
     "отдельный запрос на каждое: по одному запросу найдётся только первое, а "
     "про остальные ответ будет выдуман. Не отвечай на сам вопрос и не "

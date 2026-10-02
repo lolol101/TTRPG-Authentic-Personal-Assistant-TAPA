@@ -103,6 +103,12 @@ class Settings(BaseSettings):
     # been the English Foundry packs, not Russian pf2.ru action pages, since
     # that source was replaced.)
     chroma_collection_prefix: str = "pf2e_statblock"
+
+    # The language the served collection is written in — what the prompts
+    # tell the model about the books and how search queries are phrased
+    # (app/core/corpus_language.py). Must match the collection: "ru" goes
+    # with an index built with the Russian layer (docs/rfc/0001).
+    corpus_language: Literal["en", "ru"] = "en"
     retrieval_k: int = 5
 
     # The rulebooks are English; a Russian question finds the right page far

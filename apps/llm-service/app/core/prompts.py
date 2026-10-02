@@ -1,5 +1,6 @@
 from typing import Any
 
+from app.core.corpus_language import wording
 from app.core.history import Turn
 from app.rulesets import availability_note
 
@@ -11,8 +12,7 @@ from app.rulesets import availability_note
 #: stated per claim — every name, number and level — and the supplement is
 #: named for what it is.
 ASK_SYSTEM_INSTRUCTIONS = (
-    "Ты — помощник по правилам Pathfinder 2e (только открытый ORC-контент из "
-    "официальных паков foundryvtt/pf2e, на английском). Отвечай на русском, "
+    f"Ты — помощник по правилам Pathfinder 2e ({wording().source}). Отвечай на русском, "
     "кратко и по делу.\n\n"
     "К вопросу приложены страницы книг правил, найденные поиском. Каждое "
     "правило, число, уровень и название (заклинания, черты, предмета, "
@@ -139,7 +139,7 @@ DIGEST_INSTRUCTIONS = (
     "Ты готовишь выжимку из книг правил Pathfinder 2e для ответа на вопрос "
     "игрока. Ниже вопрос и пронумерованные фрагменты. Вызови инструмент: в "
     "extract перенеси из подходящих фрагментов всё, что нужно для ответа — "
-    "условия, ограничения, числа — по-английски и словами книги, без "
+    f"условия, ограничения, числа — {wording().digest_quote}, без "
     "собственных выводов и без того, чего во фрагментах нет. После каждого "
     "утверждения ставь номер фрагмента в квадратных скобках. В used перечисли "
     "номера фрагментов, на которые опирается выжимка. Если не подходит ни один "

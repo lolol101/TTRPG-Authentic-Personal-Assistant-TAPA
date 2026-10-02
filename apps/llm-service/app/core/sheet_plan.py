@@ -18,6 +18,7 @@ import json
 import logging
 from dataclasses import dataclass
 
+from app.core.corpus_language import wording
 from app.core.llm_provider import Completion, complete
 from app.core.tools import PLAN_SHEET_WORK, SHEET_PLAN_TOOL
 
@@ -88,7 +89,7 @@ _PLANNING_INSTRUCTIONS = (
     "Ты планируешь работу с листом персонажа Pathfinder 2e. Тебе дана просьба "
     "игрока. Если она требует изменить лист — назови, какие разделы листа "
     "затронуты, и для каждого дай короткий поисковый запрос по правилам "
-    "(лучше по-английски: книги правил на английском). Если это обычный "
+    f"{wording().plan_query_hint}. Если это обычный "
     "вопрос по правилам, а не просьба менять лист — не вызывай инструмент "
     "вообще. Не выдумывай разделы: бери только из перечисленных."
 )
