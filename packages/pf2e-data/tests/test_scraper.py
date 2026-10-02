@@ -94,12 +94,104 @@ def test_a_dead_link_does_not_take_the_rest_of_the_section_with_it(scraper, monk
     assert scraper.unreachable == ["https://pf2.ru/a/broken"]
 
 
+def _refused(url: str, status: int = 429) -> httpx.HTTPStatusError:
+    return httpx.HTTPStatusError(
+        str(status), request=httpx.Request("GET", url), response=httpx.Response(status)
+    )
+
+
+def _patient_scraper(tmp_path, waits: list[float], **overrides) -> Scraper:
+    options = {"refusal_backoff_seconds": 60.0, "refusal_backoff_max_seconds": 900.0}
+    options.update(overrides)
+    return Scraper(cache_dir=str(tmp_path), rate_limit_seconds=0, sleep=waits.append, **options)
+
+
+def test_a_refused_page_is_waited_for_not_skipped(monkeypatch, tmp_path) -> None:
+    """pf2.ru answers 429 to every uncached page while the limit lasts. Pages
+    from the cache in between used to reset the block counter, so the run
+    skipped every new page and reported itself finished with holes."""
+    waits: list[float] = []
+    scraper = _patient_scraper(tmp_path, waits)
+    attempts = {"n": 0}
+
+    def _refused_twice(url, client):
+        attempts["n"] += 1
+        if attempts["n"] <= 2:
+            raise _refused(url)
+        return RawPage(url=url, html="<html></html>", fetched_at="now")
+
+    monkeypatch.setattr(scraper, "fetch", _refused_twice)
+
+    pages = list(scraper.fetch_all(["https://pf2.ru/feats/power attack"]))
+
+    assert [page.url for page in pages] == ["https://pf2.ru/feats/power attack"]
+    assert scraper.unreachable == []
+    assert len(waits) == 2
+
+
+def test_waits_grow_and_stop_growing_at_the_cap(monkeypatch, tmp_path) -> None:
+    waits: list[float] = []
+    scraper = _patient_scraper(tmp_path, waits, refusal_max_wait_seconds=10_000)
+    attempts = {"n": 0}
+
+    def _refused_six_times(url, client):
+        attempts["n"] += 1
+        if attempts["n"] <= 6:
+            raise _refused(url, 403)
+        return RawPage(url=url, html="<html></html>", fetched_at="now")
+
+    monkeypatch.setattr(scraper, "fetch", _refused_six_times)
+
+    list(scraper.fetch_all(["https://pf2.ru/spells/shield"]))
+
+    assert waits == [60.0, 120.0, 240.0, 480.0, 900.0, 900.0]
+
+
+def test_a_refusal_that_outlasts_the_patience_stops_the_section(monkeypatch, tmp_path) -> None:
+    waits: list[float] = []
+    scraper = _patient_scraper(tmp_path, waits, refusal_max_wait_seconds=1000)
+
+    def _always_refused(url, client):
+        raise _refused(url)
+
+    monkeypatch.setattr(scraper, "fetch", _always_refused)
+
+    with pytest.raises(SiteBlockedError):
+        list(scraper.fetch_all(["https://pf2.ru/spells/shield", "https://pf2.ru/spells/fear"]))
+
+    assert sum(waits) <= 1000
+    assert scraper.unreachable == []
+
+
+def test_the_wait_starts_over_for_the_next_page(monkeypatch, tmp_path) -> None:
+    waits: list[float] = []
+    scraper = _patient_scraper(tmp_path, waits)
+    refused_once: set[str] = set()
+
+    def _each_refused_once(url, client):
+        if url not in refused_once:
+            refused_once.add(url)
+            raise _refused(url)
+        return RawPage(url=url, html="<html></html>", fetched_at="now")
+
+    monkeypatch.setattr(scraper, "fetch", _each_refused_once)
+
+    list(scraper.fetch_all(["https://pf2.ru/a/one", "https://pf2.ru/a/two"]))
+
+    assert waits == [60.0, 60.0]
+
+
 def test_a_run_of_blocks_stops_the_section(monkeypatch, tmp_path) -> None:
     """A dead link and a rate-limit block both arrive as an error, but they
     mean opposite things: one page is gone for good, the whole section is
     merely unavailable for now. Skipping through a block marks hundreds of
     live pages as unreachable and reports the section done."""
-    scraper = Scraper(cache_dir=str(tmp_path), rate_limit_seconds=0)
+    scraper = Scraper(
+        cache_dir=str(tmp_path),
+        rate_limit_seconds=0,
+        sleep=lambda _: None,
+        refusal_max_wait_seconds=0,
+    )
 
     def _always_blocked(url, client):
         raise httpx.HTTPStatusError(
@@ -133,7 +225,12 @@ def test_scattered_dead_links_are_still_skipped(monkeypatch, tmp_path) -> None:
 
 
 def test_a_block_after_good_pages_keeps_what_was_read(monkeypatch, tmp_path) -> None:
-    scraper = Scraper(cache_dir=str(tmp_path), rate_limit_seconds=0)
+    scraper = Scraper(
+        cache_dir=str(tmp_path),
+        rate_limit_seconds=0,
+        sleep=lambda _: None,
+        refusal_max_wait_seconds=0,
+    )
     seen = []
 
     def _blocked_after_five(url, client):
