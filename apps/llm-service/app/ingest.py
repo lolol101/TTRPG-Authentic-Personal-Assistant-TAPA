@@ -33,6 +33,10 @@ def to_metadata(record: dict[str, Any]) -> dict[str, Any]:
         # "ORC"/"OGL" as stamped by the source, "unstamped" for journal pages
         # indexed without a stamp, empty for chunks built before the field.
         "license": record.get("license") or "",
+        # Who translated a chunk and under what terms, kept apart from the
+        # original's licence above (docs/rfc/0001); empty for untranslated text.
+        "translation_source": record.get("translation_source") or "",
+        "translation_license": record.get("translation_license") or "",
     }
 
 
